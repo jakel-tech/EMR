@@ -1,0 +1,99 @@
+{
+  "entities": {
+    "Manufacturer": {
+      "title": "Medical Equipment Manufacturer",
+      "description": "Database of medical equipment manufacturers with logos and support info.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "logo_url": { "type": "string" },
+        "website": { "type": "string" },
+        "support_phone": { "type": "string" },
+        "support_email": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "Asset": {
+      "title": "Medical Asset/Device",
+      "description": "Comprehensive medical device record for CMMS tracking.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "type": { "type": "string" },
+        "status": { "type": "string" },
+        "location": { "type": "string" },
+        "department_id": { "type": "string" },
+        "manufacturer_id": { "type": "string" },
+        "manufacturer_name": { "type": "string" },
+        "model": { "type": "string" },
+        "serial_number": { "type": "string" },
+        "purchase_date": { "type": "string", "format": "date" },
+        "warranty_expiration": { "type": "string", "format": "date" },
+        "asset_image_url": { "type": "string" },
+        "pm_frequency": { "type": "string" },
+        "next_pm_date": { "type": "string", "format": "date" },
+        "imaging_modality": { "type": "string" }
+      },
+      "required": ["id", "name", "category", "status", "location"]
+    },
+    "Backup": {
+      "title": "Google Drive Backup Record",
+      "description": "Metadata regarding a system backup exported to Google Drive.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique backup transaction identifier."
+        },
+        "hospitalId": {
+          "type": "string",
+          "description": "The associated hospital workspace."
+        },
+        "fileId": {
+          "type": "string",
+          "description": "The Google Drive file ID."
+        },
+        "fileName": {
+          "type": "string",
+          "description": "Google Drive physical file name."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp if stored."
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "The authenticated operator email."
+        },
+        "size": {
+          "type": "integer",
+          "description": "Metadata backup size."
+        },
+        "status": {
+          "type": "string",
+          "description": "Sync execution final state."
+        }
+      },
+      "required": ["id", "hospitalId", "fileId", "fileName", "createdAt", "size", "status"]
+    }
+  },
+  "firestore": {
+    "/manufacturers/{mId}": {
+      "schema": "Manufacturer",
+      "description": "Global database of medical equipment manufacturers."
+    },
+    "/hospitals/{hospitalId}/assets/{assetId}": {
+      "schema": "Asset",
+      "description": "Medical assets and devices tracked within specific hospital workspace."
+    },
+    "/hospitals/{hospitalId}/backups/{backupId}": {
+      "schema": "Backup",
+      "description": "Unified database log records of Google Drive backups for each hospital isolate."
+    }
+  }
+}

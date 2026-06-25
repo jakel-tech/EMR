@@ -1,0 +1,46 @@
+469:  const [activeTab, setActiveTab] = useState<
+1762:    if (activeTab === "nursesStation" && isLoggedIn) {
+1776:  }, [activeTab, isLoggedIn]);
+2148:    if (currentUser.role === "Super Admin" && activeTab === "hospitals") {
+2172:  }, [currentUser.role, activeTab]);
+35029:            const isActive = activeTab === item.id;
+35736:                key={activeTab}
+35746:                    navItems.find((n) => n.id === activeTab)?.label || activeTab
+35749:                    activeTab === "dashboard"
+35753:                      : activeTab === "users"
+35757:                        : activeTab === "emr"
+35766:                    navItems.find((n) => n.id === activeTab)?.icon || Activity
+35769:                    activeTab === "users"
+35777:                      : activeTab === "hospitals"
+35787:                        : activeTab === "emr"
+35800:                  {navItems.some((n) => n.id === activeTab) ||
+35801:                  ["maintenance", "departments"].includes(activeTab) ? (
+35803:                      {activeTab === "dashboard" && renderDashboard()}
+35804:                      {activeTab === "governance" &&
+35806:                      {activeTab === "analytics" && renderAnalytics()}
+35807:                      {activeTab === "workshop" && renderWorkshop()}
+35808:                      {activeTab === "nursesStation" && (
+35822:                      {activeTab === "organizations" && renderHospitals()}
+35823:                      {activeTab === "appointments" && renderAppointments()}
+35824:                      {activeTab === "finance" && renderFinanceWithBilling()}
+35825:                      {activeTab === "hr" && renderHrWithShifts()}
+35826:                      {activeTab === "maintenance" && renderMaintenance()}
+35827:                      {activeTab === "departments" && renderDepartments()}
+35828:                      {activeTab === "inventory" && renderPharmacy()}
+35829:                      {activeTab === "emr" && renderEMR()}
+35830:                      {activeTab === "users" && renderUsers()}
+35831:                      {activeTab === "settings" && renderSettings()}
+35832:                      {activeTab === "reports" && renderReports()}
+35833:                      {activeTab === "about" && renderAbout()}
+35898:          activeTab === "workshop"
+35904:            : activeTab === "assets"
+35906:              : activeTab === "workOrders"
+35908:                : activeTab === "inventory"
+35910:                  : activeTab === "maintenance"
+35912:                    : activeTab === "users"
+35914:                      : activeTab === "hospitals"
+35916:                        : activeTab === "departments"
+35918:                          : activeTab === "appointments"
+35920:                            : activeTab === "billing"
+35922:                              : activeTab === "shifts"
+35927:          activeTab === "workshop" ? workshopTab : activeTab;

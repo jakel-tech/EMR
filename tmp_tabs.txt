@@ -1,0 +1,130 @@
+42:  Database,
+517:  const [assetViewMode, setAssetViewMode] = useState<"grid" | "table">("grid");
+1033:  // Maintenance Log Viewer Filters & Subtab
+1210:    "cbc" | "lft" | "renal" | "lipid" | "genetics" | "oncology" | "immunology" | "metabolic" | "toxicology" | "pathogens" | "tropical"
+1950:      { type: 'feature', title: 'NFC Support', description: 'Check-in to medical facilities using NFC tags (Requires opening in a standalone tab).' },
+1953:      { type: 'fix', title: 'Stability Fixes', description: 'System performance and API stability enhancements.' }
+1978:      toast.error(isRTL ? "يرجى فتح التطبيق في نافذة جديدة لاستخدام NFC" : "Please open the app in a new tab to use NFC");
+2744:          toast.error("No suitable backup file found in Google Drive");
+2962:    // Dynamically update the browser tab shortcuts & favicon
+3389:        toast.error(isRTL ? "تم إغلاق نافذة تسجيل الدخول. يرجى المحاولة مرة أخرى أو فتح التطبيق في نافذة مستقلة." : "Login popup was closed. Please try again or open the app in a new tab.");
+3391:        toast.error(isRTL ? "تم حظر نافذة تسجيل الدخول المنبثقة. يرجى السماح بالنوافذ المنبثقة أو فتح التطبيق في نافذة مستقلة." : "Login popup was blocked. Please allow popups or open the app in a new tab.");
+5100:            <table className="w-full border-collapse">
+5299:            </table>
+5441:        tab: "emr",
+5448:        tab: "assets",
+5455:        tab: "workOrders",
+5462:        tab: "inventory",
+5469:        tab: "appointments",
+5476:        tab: "analytics",
+5679:                      label: "Database Replication",
+5821:      // Filter medical records based on tab & search query
+5907:          prescription: isRTL ? "أملوديبين 5 ملغ (قرص يومياً صباحاً)\nفيتامين سي 1000 ملغ (فوار يومياً)" : "Amlodipine 5mg (1 tab daily in morning)\nVitamin C 1000mg (1 effervescent daily)",
+6134:                    ].map(tab => (
+6136:                        key={tab.id} 
+6137:                        onClick={() => setPatientMedicationFilter(tab.id as any)}
+6139:                          patientMedicationFilter === tab.id 
+6144:                        {tab.label}
+7493:      <table>
+7514:      </table>
+7688:            table { width: 100%; border-collapse: collapse; margin-top: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+7966:      <table>
+7983:      </table>
+8083:        <table>
+8108:        </table>
+8117:        <table>
+8140:        </table>
+8149:        <table>
+8189:        </table>
+8223:        <table>
+8250:        </table>
+8416:            table { 
+8740:    // Build the metrics table based on current active panel
+8971:          table {
+9101:        <table>
+9113:        </table>
+9178:    // Generate beautiful printable and legally-valid report view
+9290:            table { 
+9300:              display: table-header-group;
+9429:            <table>
+9483:            </table>
+10805:            {isRTL ? "تصفح وطباعة دليل المستخدم" : "Open Printable User Guide"}
+10827:                  <p className="text-lg font-black">Stable</p>
+10895:                    : "Immutable audit logs for every system interaction and access."}
+11093:              : "Clinical telemetry package successfully captured in patient PACS database!",
+11499:        <table className="w-full text-left">
+11608:        </table>
+11643:          ].map((tab) => {
+11644:            const isActive = workshopTab === tab.id;
+11647:                key={tab.id}
+11648:                onClick={() => setWorkshopTab(tab.id as any)}
+11662:                <tab.icon
+11666:                <span className="relative z-10">{tab.label}</span>
+11727:          key={`workshop-tab-${workshopTab}`}
+11814:                          onClick={() => setAssetViewMode("table")}
+11815:                          className={`p-1.5 rounded-lg transition-all ${assetViewMode === "table" ? "bg-white dark:bg-slate-700 shadow-sm text-primary-600" : "text-slate-400"}`}
+12075:                      <table className="w-full text-left rtl:text-right border-collapse">
+12112:                                <td className="p-4 text-[10px] font-bold text-slate-400 text-center uppercase tabular-nums">
+12210:                      </table>
+12218:                {/* Manufacturers Database Quick View */}
+12731:              <Database className="text-gray-400" size={18} />
+12747:                  {isRTL ? "قم بربط حساب Google الخاص بك لتفعيل النسخ الاحتياطي التلقائي المشفر وحفظ تاريخ النسخ في سجل Firebase Firestore المستقل." : "Establish unified Google Workspace Authentication to log secure, versioned, automated system snapshots."}
+12783:                  <div className="flex justify-between items-center"><h4 className="font-black text-gray-800 uppercase tracking-tighter text-[11px] flex items-center gap-1.5"><Database size={14} className="text-primary-500" />{isRTL ? "سجل النسخ الاحتياطية وإصدارات النظام" : "Immutable Backup Snapshot Vault"}</h4><span className="text-[10px] font-black uppercase tracking-widest text-gray-400">{backupHistory.length} {isRTL ? "نسخة محفوظة" : "Snapshots Logged"}</span></div>
+12784:                  {backupHistory.length === 0 ? (<div className="p-6 border border-dashed border-gray-200 rounded-2xl text-center text-gray-400"><Database className="mx-auto mb-2 opacity-30 text-gray-500" size={32} /><p className="text-xs">{isRTL ? "لا توجد إصدارات احتياطية مسجلة بعد في Firestore." : "No backup history has been logged."}</p></div>) : (
+12786:                      <table className="w-full text-left border-collapse">
+12797:                      </table>
+14977:          : "HL7 payload broadcasted! Hospital central database received ADT/ORU synched OK.",
+15061:        {/* Removed PACS / HL7 server configuration navigation tab list to keep workspace clean */}
+15073:                    <Database size={16} />
+15446:                  <table className="w-full text-[10px]">
+15574:                  </table>
+17476:          } else if (labSelectedPanel === "metabolic") {
+17480:              flaggedList.push("Metabolic Hyperphenylalaninemia (PKU Suspect)");
+17490:              flaggedList.push("Severe Hyperhomocysteinemia metabolic hazard");
+17562:                          : labSelectedPanel === "metabolic"
+17563:                            ? "Rare Metabolic Newborn screening"
+17585:          } else if (labSelectedPanel === "metabolic") {
+17590:            detailsText = `RNA Viral Load: ${labWBC > 0 ? "10^" + labWBC : "Undetectable"} copies/mL, specific IgG Index: ${labRBC}, specific IgM index: ${labHgb}`;
+17610:          // Update examinations database on completion of active requested tests
+17743:                      id: "metabolic",
+17744:                      label: isRTL ? "التمثيل الغذائي واعتلال الكلى" : "Endocrine & Metabolic",
+18407:              {labSelectedPanel === "metabolic" && (
+18531:                        <strong className="text-slate-400 font-normal">Norm: Undetectable (0)</strong>
+19754:      // Add to acquiredScans state so it becomes clickable in PACS Viewer tab
+21018:          ].map((tabObj) => {
+21019:            const Icon = tabObj.icon;
+21020:            const active = emrViewMode === tabObj.id;
+21023:                key={tabObj.id}
+21024:                onClick={() => setEmrViewMode(tabObj.id as any)}
+21033:                <span>{tabObj.label}</span>
+21272:                                    <table>
+21299:                                    </table>
+21336:                                    <table>
+21362:                                    </table>
+22648:                    : "Rule of Affiliation: Each hospital, pharmacy, and laboratory operates with its own private database, management dashboard, financial accounts, and unique staff credentials (medical & technical). Exception: EMR records & Engineering Maintenance Workshops are strictly hospital-centric features and do not exist individually on standalone labs or pharmacies."}
+22929:                    <span className="text-[9px] font-black uppercase text-purple-500 tracking-wider block">{isRTL ? "الحالات المستقرة" : "Stable Status rate"}</span>
+23398:                    <table className="w-full text-left rtl:text-right text-xs">
+23468:                              {isRTL ? "لا توجد معاملات فحوص مخبرية مسجلة حالياً." : "No patient laboratory tests mapped in database."}
+23473:                    </table>
+24507:            <table className="w-full text-left border-collapse">
+24585:            </table>
+24946:            <table className="w-full text-left border-collapse">
+25040:            </table>
+26016:          <table className="w-full text-left">
+26161:          </table>
+27770:                              placeholder="e.g. tablets, vials, list"
+30705:                                <Database
+31338:              ].map((tab) => {
+31339:                const TabIcon = tab.icon;
+31340:                const isCurrent = installModalTab === tab.id;
+31343:                    key={tab.id}
+31344:                    onClick={() => setInstallModalTab(tab.id as any)}
+31367:                      {tab.label}
+31782:                      <Database size={18} />
+32277:                : "The Governance workspace collects automated immutable log sequences tracking all administrative updates to ensure zero database tampering."}
+32329:        titleEn: "7. Interoperability & Data Portability",
+32477:        {/* High-Fidelity Printable Target Viewport - Visible on Media Print only */}
+32479:          id="printable-user-manual"
+32552:              .min-h-screen > *:not(#printable-user-manual) {
+32555:              #printable-user-manual {
+32564:              #printable-user-manual * {

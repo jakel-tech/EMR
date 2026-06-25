@@ -1,0 +1,14 @@
+954:  const [selectedPatient, setSelectedPatient] = useState<any>(null);
+28493:                        const selectedPatientObj = patients.find(
+28547:                            {selectedPatientObj && (
+28561:                                      (selectedPatientObj.insurance_provider && selectedPatientObj.insurance_provider !== "None" && selectedPatientObj.insurance_provider !== "No Insurance")
+28566:                                    {(selectedPatientObj.insurance_provider && selectedPatientObj.insurance_provider !== "None" && selectedPatientObj.insurance_provider !== "No Insurance")
+28576:                                {(selectedPatientObj.insurance_provider && selectedPatientObj.insurance_provider !== "None" && selectedPatientObj.insurance_provider !== "No Insurance") ? (
+28587:                                            selectedPatientObj.insurance_provider
+28598:                                          {selectedPatientObj.insurance_policy_number ||
+28630:                                          {getPatientCopayForStage(selectedPatientObj, billingServiceStage)}%
+28644:                                              getPatientCopayForStage(selectedPatientObj, billingServiceStage) /
+28659:                                            (getPatientCopayForStage(selectedPatientObj, billingServiceStage) /
+28673:                                          getPatientCopayForStage(selectedPatientObj, billingServiceStage) /
+28682:                                        (getPatientCopayForStage(selectedPatientObj, billingServiceStage) /
+29252:                            editingItem?.patientId || selectedPatient?.id

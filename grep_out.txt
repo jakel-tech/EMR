@@ -1,0 +1,390 @@
+616:        <div className="p-4 space-y-4 pb-24">
+617:          <div className="bg-blue-50 border border-blue-100 rounded-2xl p-6 text-center">
+618:            <h2 className="text-xl font-bold text-gray-800 mb-2">Welcome, {currentUser.name}</h2>
+619:            <p className="text-sm text-gray-600 mb-6">Manage your maintenance requests seamlessly.</p>
+620:            <button onClick={() => openModal('wo')} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-md hover:bg-blue-700 transition">
+624:          <h3 className="font-bold text-gray-800 mt-6 mb-2">Your Recent Requests</h3>
+625:          <div className="space-y-3">
+627:               <div key={w.id} className="bg-white p-4 rounded-xl border border-gray-100 flex justify-between items-center shadow-sm">
+629:                   <p className="font-semibold text-gray-800 text-sm">{w.description}</p>
+630:                   <p className="text-xs text-gray-500 mt-1">{w.dueDate}</p>
+632:                 <span className={`px-2.5 py-1 rounded-full text-[10px] font-medium border ${getStatusColor(w.status)}`}>{t[w.status as keyof typeof t] || w.status}</span>
+642:        <div className="p-4 space-y-4 pb-24">
+643:           <h2 className="text-xl font-bold text-gray-800 mb-4">Your Tasks</h2>
+644:           <div className="grid grid-cols-2 gap-4">
+645:            <motion.div whileHover={{ y: -5 }} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center text-center">
+646:              <Clock className="text-blue-500 mb-2" size={28} />
+647:              <h3 className="text-2xl font-bold text-gray-800">{workOrders.filter(w => w.status === 'Pending' || w.status === 'In Progress').length}</h3>
+648:              <p className="text-xs text-gray-500 mt-1">Assigned Tasks</p>
+650:            <motion.div whileHover={{ y: -5 }} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center text-center">
+651:              <CheckCircle className="text-green-500 mb-2" size={28} />
+652:              <h3 className="text-2xl font-bold text-gray-800">{workOrders.filter(w => w.status === 'Completed').length}</h3>
+653:              <p className="text-xs text-gray-500 mt-1">Completed</p>
+662:      <div className="p-4 space-y-4 pb-24">
+664:          <div className={`border rounded-2xl p-4 flex items-start gap-3 shadow-sm mb-4 ${notifications.some(n => !n.read && n.type === 'critical') ? 'bg-red-50 border-red-200' : 'bg-yellow-50 border-yellow-200'}`}>
+665:            <AlertTriangle className={`shrink-0 mt-0.5 ${notifications.some(n => !n.read && n.type === 'critical') ? 'text-red-500' : 'text-yellow-600'}`} size={20} />
+666:            <div className="flex-1">
+667:              <h3 className={`font-bold text-sm ${notifications.some(n => !n.read && n.type === 'critical') ? 'text-red-800' : 'text-yellow-800'}`}>
+670:              <ul className={`text-xs mt-1 space-y-1 list-disc list-inside ${notifications.some(n => !n.read && n.type === 'critical') ? 'text-red-700' : 'text-yellow-700'}`}>
+675:                  <li className="list-none text-[10px] font-bold mt-1 opacity-75">+ {notifications.filter(n => !n.read && (n.type === 'critical' || n.type === 'warning')).length - 3} more</li>
+679:            <button onClick={() => setNotifications(prev => prev.map(n => (n.type === 'critical' || n.type === 'warning') ? { ...n, read: true } : n))} className={`p-1.5 rounded-lg transition-colors ${notifications.some(n => !n.read && n.type === 'critical') ? 'text-red-500 bg-red-100 hover:bg-red-200' : 'text-yellow-600 bg-yellow-100 hover:bg-yellow-200'}`}>
+684:        <div className="grid grid-cols-2 gap-4">
+685:          <motion.div whileHover={{ y: -5, boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)' }} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center justify-center text-center transition-shadow">
+686:            <motion.div whileHover={{ scale: 1.1, rotate: 5 }}><CheckCircle className="text-green-500 mb-2" size={28} /></motion.div>
+687:            <h3 className="text-2xl font-bold text-gray-800">{assets.filter(a => a.status === 'Operational').length}</h3>
+688:            <p className="text-xs text-gray-500 mt-1">{t.operational}</p>
+690:          <motion.div whileHover={{ y: -5, boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)' }} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center justify-center text-center transition-shadow">
+691:            <motion.div whileHover={{ scale: 1.1, rotate: -5 }}><Wrench className="text-yellow-500 mb-2" size={28} /></motion.div>
+692:            <h3 className="text-2xl font-bold text-gray-800">{assets.filter(a => a.status === 'Under Maintenance').length}</h3>
+693:            <p className="text-xs text-gray-500 mt-1">{t.underMaintenance}</p>
+695:          <motion.div whileHover={{ y: -5, boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)' }} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center justify-center text-center transition-shadow">
+696:            <motion.div whileHover={{ scale: 1.1, rotate: 5 }}><Clock className="text-blue-500 mb-2" size={28} /></motion.div>
+697:            <h3 className="text-2xl font-bold text-gray-800">{workOrders.filter(w => w.status === 'Pending').length}</h3>
+698:            <p className="text-xs text-gray-500 mt-1">{t.pendingWO}</p>
+700:          <motion.div whileHover={{ y: -5, boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)' }} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center justify-center text-center transition-shadow">
+701:            <motion.div whileHover={{ scale: 1.1, rotate: -5 }}><AlertTriangle className="text-red-500 mb-2" size={28} /></motion.div>
+702:            <h3 className="text-2xl font-bold text-gray-800">{schedules.filter(s => new Date(s.nextDueDate) < new Date()).length}</h3>
+703:            <p className="text-xs text-gray-500 mt-1">{t.overdue}</p>
+774:    <div className="p-4 space-y-6 pb-24">
+775:      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
+777:          <label className="block text-sm font-medium text-gray-700 mb-1">{t.periodicReports} Type</label>
+781:            className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+788:        <div className="grid grid-cols-2 gap-4">
+790:            <label className="block text-sm font-medium text-gray-700 mb-1">{t.startDate}</label>
+795:              className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+799:            <label className="block text-sm font-medium text-gray-700 mb-1">{t.endDate}</label>
+804:              className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+810:          className="w-full mt-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:shadow-lg transition-all active:scale-95"
+817:      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-start gap-4">
+818:        <div className="bg-blue-50 text-blue-600 p-3 rounded-xl shrink-0">
+822:          <h3 className="font-bold text-gray-800">{t.reports}</h3>
+823:          <p className="text-sm text-gray-500 mt-1">Select a report type and date range, then click print to generate a printer-friendly version of your data.</p>
+894:      <div className="p-4 space-y-6 pb-24">
+895:        <div className="flex justify-between items-center mb-2">
+896:          <h2 className="text-xl font-bold text-gray-800">{t.analytics}</h2>
+897:          <button onClick={exportData} className="flex items-center gap-2 bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors">
+903:        <div className="grid grid-cols-2 gap-4">
+904:          <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+905:            <p className="text-xs text-gray-500 mb-1">{t.mttr}</p>
+906:            <h3 className="text-xl font-bold text-gray-800">{analytics.kpis.avgMttr}</h3>
+908:          <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+909:            <p className="text-xs text-gray-500 mb-1">{t.mtbf}</p>
+910:            <h3 className="text-xl font-bold text-gray-800">{analytics.kpis.avgMtbf}</h3>
+912:          <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+913:            <p className="text-xs text-gray-500 mb-1">{t.pmCompletion}</p>
+914:            <h3 className="text-xl font-bold text-green-600">{analytics.kpis.pmCompletion}%</h3>
+916:          <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+917:            <p className="text-xs text-gray-500 mb-1">{t.totalCost}</p>
+918:            <h3 className="text-xl font-bold text-red-600">${analytics.kpis.totalCost.toLocaleString()}</h3>
+923:        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+924:          <h3 className="text-sm font-bold text-gray-800 mb-4">{t.mttr}</h3>
+925:          <div className="h-48">
+939:        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+940:          <h3 className="text-sm font-bold text-gray-800 mb-4">{t.totalCost}</h3>
+941:          <div className="h-48">
+953:          <div className="flex flex-wrap justify-center gap-2 mt-2">
+955:              <div key={entry.name} className="flex items-center text-[10px]">
+956:                <span className="w-2 h-2 rounded-full mr-1" style={{backgroundColor: COLORS[index % COLORS.length]}}></span>
+964:        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+965:          <h3 className="text-sm font-bold text-gray-800 mb-4">{t.downtime}</h3>
+966:          <div className="h-48">
+983:    <div className="pb-32 pt-4 px-4 space-y-3">
+989:          className="bg-white p-4 rounded-3xl border border-gray-100/80 shadow-[0_2px_10px_rgb(0,0,0,0.02)] hover:shadow-[0_8px_20px_rgb(0,0,0,0.05)] transition-all cursor-pointer flex justify-between items-center group" 
+993:            <h3 className="font-bold text-gray-800 group-hover:text-blue-600 transition-colors">{item.name}</h3>
+994:            <p className="text-xs text-gray-500 mt-1">{item.category} • {item.location}</p>
+996:              <div className="inline-flex items-center gap-1.5 mt-2 bg-blue-50 text-blue-700 text-[10px] px-2 py-0.5 rounded-full font-medium">
+1001:          <span className={`px-3 py-1 rounded-full text-[10px] font-bold border ${getStatusColor(item.status)}`}>{t[item.status as keyof typeof t] || item.status}</span>
+1005:        <div className="text-center py-10 text-gray-400 text-sm bg-white rounded-3xl border border-gray-100 border-dashed">
+1013:    <div className="pb-24 pt-2">
+1014:      <div className="p-4 pt-2 pb-2 flex justify-end">
+1015:        <div className="bg-gray-100 p-1 rounded-xl flex items-center">
+1016:          <button onClick={() => setWoView('list')} className={`p-1.5 rounded-lg transition ${woView === 'list' ? 'bg-white shadow border border-gray-200' : 'text-gray-500'}`}><List size={20} /></button>
+1017:          <button onClick={() => setWoView('board')} className={`p-1.5 rounded-lg transition ${woView === 'board' ? 'bg-white shadow border border-gray-200' : 'text-gray-500'}`}><Columns size={20} /></button>
+1022:        <div className="space-y-3 px-4">
+1028:              className="bg-white p-4 rounded-3xl border border-gray-100/80 shadow-[0_2px_10px_rgb(0,0,0,0.02)] hover:shadow-[0_8px_20px_rgb(0,0,0,0.05)] transition-all cursor-pointer flex justify-between items-center group" 
+1032:                <h3 className="font-bold text-gray-800 flex items-center gap-1.5 group-hover:text-blue-600 transition-colors">
+1034:                  {item.is_pm && <RefreshCw size={12} className="text-blue-500" />}
+1036:                <p className="text-xs text-gray-500 mt-1">{assets.find(a => a.id === item.assetId)?.name} • {item.dueDate}</p>
+1038:              <div className="flex flex-col items-end gap-1.5">
+1039:                <span className={`px-3 py-1 rounded-full text-[10px] font-bold border ${getStatusColor(item.status)}`}>{t[item.status as keyof typeof t] || item.status}</span>
+1040:                <span className={`text-[10px] font-bold px-2 flex items-center ${item.priority === 'High' ? 'text-red-500' : item.priority === 'Medium' ? 'text-yellow-500 bg-yellow-50 rounded-full' : 'text-green-500 bg-green-50 rounded-full'}`}>{t[item.priority as keyof typeof t] || item.priority}</span>
+1045:            <div className="text-center py-10 text-gray-400 text-sm bg-white rounded-3xl border border-gray-100 border-dashed">
+1051:        <div className="px-4 pb-4 overflow-x-auto">
+1052:          <div className="flex gap-4 min-w-[max-content]">
+1054:              <div key={status} className="w-64 bg-gray-50 rounded-2xl p-3 border border-gray-100 flex flex-col max-h-[70vh]">
+1055:                <h3 className="font-bold text-gray-700 mb-3 ml-1 text-sm">{t[status as keyof typeof t] || status} <span className="text-gray-400 font-normal ml-1 text-xs">({filteredWOs.filter(w => w.status === status).length})</span></h3>
+1056:                <div className="space-y-3 overflow-y-auto pr-1">
+1058:                    <motion.div whileHover={{ y: -3, boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }} key={item.id} className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm cursor-pointer" onClick={() => openModal('wo', item)}>
+1059:                      <div className="flex justify-between items-start mb-2">
+1060:                        <span className={`text-[10px] font-bold ${item.priority === 'High' ? 'text-red-500' : item.priority === 'Medium' ? 'text-yellow-500' : 'text-green-500'}`}>{t[item.priority as keyof typeof t] || item.priority}</span>
+1062:                      <h4 className="font-bold text-gray-800 text-sm mb-1">{item.description}</h4>
+1063:                      <p className="text-xs text-gray-500 truncate">{assets.find(a => a.id === item.assetId)?.name}</p>
+1076:    <div className="p-4 space-y-6 pb-24">
+1077:      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
+1078:        <div className="w-16 h-16 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xl">
+1081:        <div className="flex-1">
+1082:          <h2 className="text-xl font-bold text-gray-800">{currentUser.name}</h2>
+1083:          <p className="text-sm text-gray-500">{currentUser.email}</p>
+1084:          <div className="flex items-center gap-2 mt-2">
+1085:            <span className="bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded-md">{currentUser.department}</span>
+1086:            <span className="bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded-md font-medium">{currentUser.role}</span>
+1089:        <button onClick={() => openModal('changePassword', currentUser)} className="text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors">
+1094:      <div className="space-y-4">
+1095:        <h3 className="font-bold text-gray-800 ml-1">{t.settings}</h3>
+1097:        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden divide-y divide-gray-100">
+1098:          <div className="p-4 flex justify-between items-center bg-gray-50 hover:bg-gray-100 transition cursor-pointer" onClick={toggleLanguage}>
+1100:              <p className="font-medium text-gray-800">Language</p>
+1101:              <p className="text-xs text-gray-500">Switch between English and Arabic RTL</p>
+1103:            <span className="font-bold text-blue-600">{t.language}</span>
+1105:          <div className="p-4 flex justify-between items-center bg-gray-50 hover:bg-gray-100 transition cursor-pointer" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+1107:              <p className="font-medium text-gray-800">Dark Mode</p>
+1108:              <p className="text-xs text-gray-500">Toggle dark UI theme</p>
+1110:            <div className={`w-10 h-6 rounded-full relative shadow-inner transition-colors ${theme === 'dark' ? 'bg-blue-600' : 'bg-gray-300'}`}>
+1111:              <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${theme === 'dark' ? 'right-1' : 'left-1'}`}></div>
+1114:          <div className="p-4 flex justify-between items-center cursor-pointer">
+1116:              <p className="font-medium text-gray-800">Notifications</p>
+1117:              <p className="text-xs text-gray-500">Enable or disable Push Alerts</p>
+1119:            <div className="w-10 h-6 bg-blue-600 rounded-full relative shadow-inner">
+1120:              <div className="absolute right-1 top-1 w-4 h-4 bg-white rounded-full transition-all"></div>
+1125:        <h3 className="font-bold text-gray-800 ml-1 mt-6">Backup & Sync <span className="ml-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 text-[10px] uppercase font-bold tracking-wider border border-blue-100">Google Drive</span></h3>
+1126:        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden divide-y divide-gray-100">
+1127:          <div className="p-4 flex justify-between items-center bg-gray-50 hover:bg-gray-100 transition cursor-pointer" onClick={() => setAutoSyncEnabled(!autoSyncEnabled)}>
+1129:              <p className="font-medium text-gray-800">Real-time Auto Sync</p>
+1130:              <p className="text-xs text-gray-500">Automatically backup when data changes</p>
+1132:            <div className={`w-10 h-6 rounded-full relative shadow-inner transition-colors ${autoSyncEnabled ? 'bg-blue-600' : 'bg-gray-300'}`}>
+1133:              <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${autoSyncEnabled ? 'right-1' : 'left-1'}`}></div>
+1136:          <div className="p-4 flex gap-3">
+1140:              className={`flex-1 py-2.5 rounded-xl text-sm font-bold flex justify-center items-center gap-2 ${isSyncing ? 'bg-gray-100 text-gray-400' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
+1142:              <Download size={16} className="rotate-180" /> Backup Now
+1147:              className={`flex-1 py-2.5 rounded-xl text-sm font-bold flex justify-center items-center gap-2 ${isSyncing ? 'bg-gray-100 text-gray-400' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}
+1158:    <div className="pb-32 pt-4 px-4 space-y-3">
+1164:          className="bg-white p-4 rounded-3xl border border-gray-100/80 shadow-[0_2px_10px_rgb(0,0,0,0.02)] hover:shadow-[0_8px_20px_rgb(0,0,0,0.05)] transition-all cursor-pointer flex justify-between items-center group" 
+1168:            <h3 className="font-bold text-gray-800 group-hover:text-blue-600 transition-colors">{item.task}</h3>
+1169:            <p className="text-xs text-gray-500 mt-1">{assets.find(a => a.id === item.assetId)?.name}</p>
+1171:          <div className="flex flex-col items-end gap-1.5 text-xs">
+1172:            <span className="text-gray-800 font-bold bg-gray-50 px-2 py-1 rounded-md">{item.nextDueDate}</span>
+1173:            <span className="text-gray-500 font-medium">{t[item.frequency as keyof typeof t] || item.frequency}</span>
+1178:        <div className="text-center py-10 text-gray-400 text-sm bg-white rounded-3xl border border-gray-100 border-dashed">
+1186:    <div className="pb-32 pt-2 px-4 space-y-2">
+1187:      <div className="grid grid-cols-5 gap-2 px-4 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-center sticky top-[60px] bg-gray-50/90 backdrop-blur-md z-10 rounded-2xl mx-1">
+1194:      <div className="space-y-2">
+1200:            className="grid grid-cols-5 gap-2 p-3 bg-white rounded-2xl border border-gray-100/80 shadow-[0_2px_10px_rgb(0,0,0,0.02)] hover:shadow-md transition-shadow text-center items-center text-sm cursor-pointer group" 
+1203:            <div className="font-bold text-gray-800 break-words text-xs group-hover:text-blue-600 transition-colors">{item.partNumber}</div>
+1204:            <div className="flex flex-col items-center justify-center">
+1205:              <span className="font-bold text-gray-800 text-xs">{item.name}</span>
+1206:              <span className="text-[10px] text-gray-400 mt-0.5">{item.supplier}</span>
+1208:            <div className="text-gray-500 text-xs font-medium">{item.category}</div>
+1209:            <div className="text-gray-600 font-bold flex items-center justify-center gap-1 text-xs">
+1210:              <span className="text-gray-400">{item.minQuantity}</span>
+1211:              <span className="text-gray-300">/</span>
+1212:              <span className={item.currentQuantity <= item.minQuantity ? 'text-red-500' : 'text-gray-800'}>
+1216:            <div className="font-bold text-emerald-600 text-[10px]">{(item.cost || 0).toLocaleString()} SDG</div>
+1220:          <div className="text-center py-10 text-gray-400 text-sm bg-white rounded-3xl border border-gray-100 border-dashed">
+1229:    <div className="pb-32 pt-4 px-4 space-y-3">
+1235:          className="bg-white p-4 rounded-3xl border border-gray-100/80 shadow-[0_2px_10px_rgb(0,0,0,0.02)] hover:shadow-[0_8px_20px_rgb(0,0,0,0.05)] transition-all cursor-pointer flex justify-between items-center group" 
+1238:          <div className="flex items-center gap-4">
+1239:            <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-blue-100 to-indigo-50 text-blue-700 flex items-center justify-center font-bold text-sm shadow-inner">
+1243:              <h3 className="font-bold text-gray-800 flex items-center gap-1.5 group-hover:text-blue-600 transition-colors">
+1245:                {item.is_verified && <CheckCircle size={14} className="text-emerald-500" />}
+1247:              <p className="text-xs text-gray-500 mt-1"><span className="text-gray-700 font-medium">{item.role}</span> • {item.department}</p>
+1250:          <div className="flex flex-col items-end gap-2 text-xs">
+1252:              <div className="flex gap-2">
+1269:                    className="bg-blue-50 text-blue-700 px-3 py-1.5 rounded-full font-bold hover:bg-blue-100 active:scale-95 transition-all shadow-sm whitespace-nowrap"
+1276:                  className="bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full font-bold hover:bg-emerald-100 active:scale-95 transition-all shadow-sm whitespace-nowrap"
+1286:        <div className="text-center py-10 text-gray-400 text-sm bg-white rounded-3xl border border-gray-100 border-dashed">
+1302:          className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+1309:            className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl max-h-[90vh] flex flex-col border border-gray-100"
+1311:            <div className="flex justify-between items-center p-5 border-b border-gray-100 shrink-0">
+1312:              <h2 className="text-lg font-bold text-gray-800">
+1317:              <button onClick={closeModal} className="text-gray-400 hover:text-gray-600 bg-gray-100 rounded-full p-1">
+1322:            <div className="overflow-y-auto p-4">
+1324:                <div className="space-y-4">
+1325:                   <div className="text-center">
+1326:                     <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-3">
+1329:                     <h3 className="font-bold text-gray-800">{t.verifyPhone}</h3>
+1330:                     <p className="text-sm text-gray-500 mt-1">{editingItem?.name}</p>
+1331:                     <p className="text-xs text-gray-400">{verifyingPhone}</p>
+1335:                     <div className="flex flex-col gap-3">
+1337:                         <label className="block text-sm font-medium text-gray-700 mb-1">{t.phone}</label>
+1338:                         <input value={verifyingPhone} onChange={(e) => setVerifyingPhone(e.target.value)} required className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 outline-none text-center" dir="ltr" />
+1340:                       <div className="flex gap-4 justify-center my-2">
+1341:                         <label className="flex items-center gap-2 cursor-pointer">
+1343:                           <span className="text-sm font-medium text-gray-700">WhatsApp</span>
+1345:                         <label className="flex items-center gap-2 cursor-pointer">
+1347:                           <span className="text-sm font-medium text-gray-700">SMS</span>
+1363:                       }} className="w-full bg-green-600 text-white py-2.5 rounded-xl font-medium hover:bg-green-700 transition-colors">
+1368:                     <div className="flex flex-col gap-3 animate-in fade-in zoom-in duration-300">
+1370:                         <label className="block text-sm text-center font-medium text-gray-700 mb-2">{t.enterCode}</label>
+1371:                         <input value={verificationCode} onChange={(e) => setVerificationCode(e.target.value)} className="w-full p-3 border-2 border-green-500 rounded-xl focus:ring-4 focus:ring-green-100 outline-none text-center text-xl tracking-widest font-mono" />
+1387:                       }} className="w-full bg-green-600 text-white py-2.5 rounded-xl font-medium hover:bg-green-700 transition-colors">
+1394:              <form id="modal-form" onSubmit={handleSave} className="space-y-4">
+1398:                      <label className="block text-sm font-medium text-gray-700 mb-1">{t.assetName}</label>
+1399:                      <input name="name" defaultValue={editingItem?.name} required className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1402:                      <label className="block text-sm font-medium text-gray-700 mb-1">{t.category}</label>
+1403:                      <input name="category" defaultValue={editingItem?.category} required className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1406:                      <label className="block text-sm font-medium text-gray-700 mb-1">{t.status}</label>
+1407:                      <select name="status" defaultValue={editingItem?.status || 'Operational'} className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
+1414:                      <label className="block text-sm font-medium text-gray-700 mb-1">{t.location}</label>
+1415:                      <input name="location" defaultValue={editingItem?.location} required className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1417:                    <div className="grid grid-cols-2 gap-4">
+1419:                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.pmFrequency}</label>
+1420:                        <select name="pm_frequency" defaultValue={editingItem?.pm_frequency || 'monthly'} className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
+1427:                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.nextPmDate}</label>
+1428:                        <input type="date" name="next_pm_date" defaultValue={editingItem?.next_pm_date} className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1437:                      <label className="block text-sm font-medium text-gray-700 mb-1">{t.asset}</label>
+1438:                      <select name="assetId" defaultValue={editingItem?.assetId} required className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
+1444:                      <label className="block text-sm font-medium text-gray-700 mb-1">{t.description}</label>
+1445:                      <input name="description" defaultValue={editingItem?.description} required className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1447:                    <div className="grid grid-cols-2 gap-4">
+1449:                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.priority}</label>
+1450:                        <select name="priority" defaultValue={editingItem?.priority || 'Medium'} className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
+1457:                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.status}</label>
+1458:                        <select name="status" defaultValue={editingItem?.status || 'Pending'} className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
+1466:                      <label className="block text-sm font-medium text-gray-700 mb-1">{t.dueDate}</label>
+1467:                      <input type="date" name="dueDate" defaultValue={editingItem?.dueDate} required className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1469:                    <div className="grid grid-cols-2 gap-4">
+1471:                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.cost}</label>
+1472:                        <input type="number" name="cost" defaultValue={editingItem?.cost || 0} className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1475:                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.downtime || 'Downtime (hrs)'}</label>
+1476:                        <input type="number" name="downtime_hours" defaultValue={editingItem?.downtime_hours || 0} className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1479:                    <div className="border-t border-gray-100 pt-3 mt-3">
+1480:                      <h4 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-blue-500"></div> ISO 13485 Quality Standards</h4>
+1481:                      <div className="space-y-3">
+1483:                          <label className="block text-xs font-medium text-gray-700 mb-1">Parts Used (Traceability)</label>
+1484:                          <input name="parts_used" placeholder="e.g. Filter #A2, Battery Pack..." defaultValue={editingItem?.parts_used || ''} className="w-full p-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1487:                          <label className="block text-xs font-medium text-gray-700 mb-1">ISO Compliance & Audit Notes</label>
+1488:                          <textarea name="iso_compliance_notes" placeholder="Detailed logs for compliance audits..." defaultValue={editingItem?.iso_compliance_notes || ''} className="w-full p-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none min-h-[80px]" />
+1491:                          <label className="block text-xs font-medium text-gray-700 mb-1">Quality Verifier (Sign-off)</label>
+1492:                          <input name="quality_signature" placeholder="Verifier ID or Name" defaultValue={editingItem?.quality_signature || ''} className="w-full p-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1502:                      <label className="block text-sm font-medium text-gray-700 mb-1">{t.asset}</label>
+1503:                      <select name="assetId" defaultValue={editingItem?.assetId} required className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
+1509:                      <label className="block text-sm font-medium text-gray-700 mb-1">{t.task}</label>
+1510:                      <input name="task" defaultValue={editingItem?.task} required className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1512:                    <div className="grid grid-cols-2 gap-4">
+1514:                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.frequency}</label>
+1515:                        <select name="frequency" defaultValue={editingItem?.frequency || 'Monthly'} className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
+1523:                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.nextDueDate}</label>
+1524:                        <input type="date" name="nextDueDate" defaultValue={editingItem?.nextDueDate} required className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1533:                      <label className="block text-sm font-medium text-gray-700 mb-1">{t.partNumber}</label>
+1534:                      <input name="partNumber" defaultValue={editingItem?.partNumber} required className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1537:                      <label className="block text-sm font-medium text-gray-700 mb-1">{t.partName}</label>
+1538:                      <input name="name" defaultValue={editingItem?.name} required className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1541:                      <label className="block text-sm font-medium text-gray-700 mb-1">{t.supplier}</label>
+1542:                      <input name="supplier" defaultValue={editingItem?.supplier} required className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1545:                      <label className="block text-sm font-medium text-gray-700 mb-1">{t.category}</label>
+1546:                      <input name="category" defaultValue={editingItem?.category} required className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1548:                    <div className="grid grid-cols-2 gap-4">
+1550:                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.currentQty}</label>
+1551:                        <input type="number" name="currentQuantity" defaultValue={editingItem?.currentQuantity} required className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1554:                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.minQty}</label>
+1555:                        <input type="number" name="minQuantity" defaultValue={editingItem?.minQuantity} required className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1559:                      <label className="block text-sm font-medium text-gray-700 mb-1">{t.cost}</label>
+1560:                      <input type="number" name="cost" defaultValue={editingItem?.cost} required className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1567:                      <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+1568:                      <input name="name" defaultValue={currentUser?.name} required className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Full Name" />
+1571:                      <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+1572:                      <input name="email" type="email" defaultValue={currentUser?.email} required className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1575:                      <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+1576:                      <input name="phone" type="tel" defaultValue={currentUser?.phone} className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1578:                    <hr className="my-4 border-gray-100" />
+1579:                    <h3 className="text-sm font-bold text-gray-800">Change Password</h3>
+1581:                      <label className="block text-sm font-medium text-gray-700 mb-1">New Password (leave blank to keep current)</label>
+1582:                      <input type="password" name="newPassword" className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" minLength={6} />
+1585:                      <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
+1586:                      <input type="password" name="confirmPassword" className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" minLength={6} />
+1593:                      <label className="block text-sm font-medium text-gray-700 mb-1">{t.assetName}</label>
+1594:                      <input name="name" defaultValue={editingItem?.name} required className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Full Name" />
+1597:                      <label className="block text-sm font-medium text-gray-700 mb-1">{t.email}</label>
+1598:                      <input type="email" name="email" defaultValue={editingItem?.email} required className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1601:                      <label className="block text-sm font-medium text-gray-700 mb-1">{t.phone}</label>
+1602:                      <div className="flex gap-2">
+1603:                        <input name="phone" defaultValue={editingItem?.phone} value={verifyingPhone} onChange={e => { setVerifyingPhone(e.target.value); setIsPhoneVerified(false); }} className="flex-1 p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" dir="ltr" />
+1606:                          <div className="flex gap-2 items-center">
+1618:                             }} className="bg-green-100 text-green-700 font-bold px-3 py-2 rounded-xl text-sm whitespace-nowrap hover:bg-green-200 transition">
+1622:                              <button type="button" onClick={() => setIsPhoneVerified(true)} title="Manually Verify" className="bg-blue-100 text-blue-700 font-bold px-3 py-2 rounded-xl text-sm whitespace-nowrap hover:bg-blue-200 transition">
+1629:                          <div className="bg-green-100 text-green-700 font-bold px-3 py-2 rounded-xl text-sm flex items-center justify-center">
+1636:                         <div className="mt-2 flex gap-2 animate-in fade-in zoom-in">
+1637:                           <input placeholder="Code" value={verificationCode} onChange={(e) => setVerificationCode(e.target.value)} className="w-full p-2 border-2 border-green-500 rounded-xl focus:ring-4 focus:ring-green-100 outline-none text-center tracking-widest font-mono" />
+1652:                           }} className="bg-green-600 px-6 text-white py-2.5 rounded-xl font-medium hover:bg-green-700 transition-colors">
+1658:                    <div className="grid grid-cols-2 gap-4">
+1660:                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.department}</label>
+1661:                        <input name="department" defaultValue={editingItem?.department} required className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+1664:                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.role}</label>
+1665:                        <select name="role" defaultValue={editingItem?.role || 'Requester'} className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
+1674:                      <label className="block text-sm font-medium text-gray-700 mb-1">New Password {editingItem ? '(leave blank to keep current)' : ''}</label>
+1675:                      <input type="password" name="newPassword" className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" minLength={6} required={!editingItem} />
+1678:                      <div className="mt-4 border-t border-gray-100 pt-4">
+1679:                        <label className="block text-sm font-bold text-gray-800 mb-3">Custom Permissions Overrides (Optional)</label>
+1681:                        <div className="space-y-4 max-h-48 overflow-y-auto pr-2">
+1698:                              <div key={section} className="bg-gray-50 border border-gray-200 rounded-xl p-3">
+1699:                                <h4 className="font-bold text-xs text-gray-700 uppercase tracking-wider mb-2">{section}</h4>
+1700:                                <div className="grid grid-cols-4 gap-2">
+1702:                                    <label key={action} className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+1703:                                      <input type="checkbox" name={`perm_${section}_${action}`} defaultChecked={secPerms[action] === true} className="rounded text-blue-600 focus:ring-blue-500 w-3.5 h-3.5" />
+1722:            <div className="flex gap-3 p-4 border-t border-gray-100 shrink-0">
+1724:                <button type="submit" form="modal-form" disabled={modalType === 'user' && !isPhoneVerified && verifyingPhone.length > 0} className={`flex-1 py-2.5 rounded-xl font-medium transition-colors ${modalType === 'user' && !isPhoneVerified && verifyingPhone.length > 0 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
+1729:                <button type="button" onClick={() => { handleDelete(editingItem.id, modalType as any); closeModal(); }} className="px-4 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-colors flex items-center justify-center">
+1753:      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+1754:        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+1760:    <div className="min-h-screen bg-gray-50 text-gray-900 font-sans mx-auto max-w-2xl relative shadow-2xl overflow-hidden flex flex-col">
+1764:      <header className="bg-white/80 backdrop-blur-md px-4 py-3 flex justify-between items-center shadow-sm sticky top-0 z-20 border-b border-gray-100/50">
+1765:        <div className="flex items-center space-x-3 rtl:space-x-reverse relative">
+1766:          <div className="relative">
+1767:            <div onClick={() => {setShowUserDropdown(!showUserDropdown); setShowNotifications(false);}} className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-white flex items-center justify-center font-bold text-sm shadow-md cursor-pointer hover:shadow-lg transition-all">
+1773:                <motion.div initial={{ opacity: 0, y: 10, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.95 }} className="absolute top-12 left-0 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-50 overflow-hidden transition-all">
+1774:                  <div className="p-2 border-b border-gray-100 bg-gray-50 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Switch User</div>
+1775:                  <div className="max-h-48 overflow-y-auto">
+1777:                      <div key={u.id} onClick={() => { setCurrentUser(u); setActiveTab('dashboard'); setShowUserDropdown(false); }} className={`p-2 font-medium text-sm flex flex-col cursor-pointer hover:bg-blue-50 transition-colors ${u.id === currentUser.id ? 'bg-blue-50 text-blue-700 relative' : 'text-gray-700'}`}>
+1779:                        <span className="text-[10px] opacity-70">{u.role}</span>
+1780:                        {u.id === currentUser.id && <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-blue-600"></div>}
+1788:          <button onClick={() => {setShowNotifications(!showNotifications); setShowUserDropdown(false);}} className="text-gray-500 hover:text-gray-800 transition-colors relative hover:bg-gray-100 p-1.5 rounded-full">
+1790:            {notifications.some(n => !n.read) && <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white"></span>}
+1794:              <motion.div initial={{ opacity: 0, y: 10, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.95 }} className={`absolute top-12 ${isRTL ? 'right-0' : 'left-0'} w-72 bg-white rounded-2xl shadow-xl border border-gray-100 z-50 overflow-hidden`}>
+1795:                <div className="p-3 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+1796:                  <span className="font-bold text-gray-800 text-sm">Notifications</span>
+1798:                    <button onClick={markAllNotificationsRead} className="text-xs text-blue-600 hover:text-blue-800 font-medium hover:underline">
+1803:                <div className="max-h-64 overflow-y-auto divide-y divide-gray-50">
+1805:                    <div key={n.id} className={`p-3 ${n.read ? 'opacity-60' : 'bg-blue-50/30'} flex flex-col gap-1 cursor-pointer transition-colors hover:bg-gray-50`} onClick={() => markNotificationRead(n.id)}>
+1806:                       <div className="flex items-center gap-2">
+1807:                         {n.type === 'critical' ? <AlertTriangle size={14} className="text-red-500" /> : <Bell size={14} className="text-yellow-500" />}
+1808:                         <span className="font-bold text-gray-800 text-xs">{n.title}</span>
+1810:                       <p className="text-xs text-gray-600 ml-5">{n.message}</p>
+1811:                       <span className="text-[10px] text-gray-400 ml-5">{n.timestamp}</span>
+1814:                  {notifications.length === 0 && <div className="p-4 text-center text-sm text-gray-500">No new notifications</div>}
+1823:            <h1 className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-gray-800 to-gray-500 absolute left-1/2 transform -translate-x-1/2 whitespace-nowrap">
+1826:            <div className="flex items-center gap-1.5">
+1827:              <button onClick={() => setIsGlobalSearchOpen(true)} className="text-gray-500 p-2 hover:bg-gray-100 rounded-full transition-colors hidden sm:block">
+1830:              <button onClick={() => setIsGlobalSearchOpen(true)} className="text-gray-500 p-2 hover:bg-gray-100 rounded-full transition-colors sm:hidden">
+1834:                <button onClick={() => setActiveTab('settings')} className={`p-2 rounded-full transition-colors ${activeTab === 'settings' ? 'bg-gray-100 text-blue-600' : 'text-gray-500 hover:bg-gray-100'}`}>
+1838:              <button onClick={toggleLanguage} className="text-gray-700 p-1.5 hover:bg-gray-100 rounded-lg transition-colors flex items-center justify-center">
+1839:                <span className="text-[10px] font-bold bg-gray-100 border border-gray-200 px-2 py-1 rounded-md">{lang.toUpperCase()}</span>
+1844:          <div className="flex-1 flex items-center justify-end animate-in fade-in slide-in-from-right-4 duration-300 ml-4">
+1845:            <div className="relative w-full max-w-sm flex items-center bg-gray-100 rounded-full overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 transition-shadow">
+1846:              <Search className="absolute left-3 text-gray-400" size={16} />
+1853:                className="w-full bg-transparent text-sm pl-9 pr-10 py-2 focus:outline-none" 
+1855:              <button onClick={() => { setIsGlobalSearchOpen(false); setSearchTerm(''); }} className="absolute right-2 p-1.5 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-200 transition-colors">
+1864:      <main className="flex-1 overflow-y-auto">
+1886:          className={`fixed bottom-24 ${isRTL ? 'left-4' : 'right-4'} w-14 h-14 bg-gradient-to-tr from-blue-600 to-indigo-600 text-white rounded-full shadow-lg flex items-center justify-center hover:shadow-xl hover:-translate-y-0.5 z-10 transition-all active:scale-95`}
+1895:        className={`fixed bottom-24 ${isRTL ? 'right-4' : 'left-4'} w-14 h-14 bg-gradient-to-tr from-purple-600 to-blue-500 text-white rounded-full shadow-lg flex items-center justify-center hover:shadow-xl hover:-translate-y-0.5 z-20 transition-all active:scale-95`}
+1907:            className={`fixed bottom-28 ${isRTL ? 'right-4' : 'left-4'} w-[calc(100vw-2rem)] sm:w-96 bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl border border-gray-200/50 z-50 flex flex-col overflow-hidden max-h-[70vh]`}
+1909:            <div className="bg-gradient-to-r from-purple-600 to-blue-500 p-4 flex justify-between items-center text-white shrink-0">
+1910:              <div className="flex items-center gap-2">
+1912:                <span className="font-bold text-sm">ISO 13485 AI Assistant</span>
+1914:              <button onClick={() => setIsAIChatOpen(false)} className="hover:bg-white/20 p-1 rounded-full bg-white/10 transition">
+1919:            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50 flex flex-col">
+1921:                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+1922:                  <div className={`max-w-[85%] p-3 rounded-2xl text-sm ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-br-sm' : 'bg-white text-gray-800 border border-gray-100 rounded-bl-sm shadow-sm'}`}>
+1928:                <div className="flex justify-start">
+1929:                  <div className="bg-white border border-gray-100 p-3 rounded-2xl rounded-bl-sm text-sm text-gray-500 flex gap-1 items-center shadow-sm">
+1930:                    <span className="w-2 h-2 rounded-full bg-gray-300 animate-bounce"></span>
+1931:                    <span className="w-2 h-2 rounded-full bg-gray-300 animate-bounce" style={{ animationDelay: '0.2s' }}></span>
+1932:                    <span className="w-2 h-2 rounded-full bg-gray-300 animate-bounce" style={{ animationDelay: '0.4s' }}></span>
+1939:            <div className="p-3 bg-white border-t border-gray-100 shrink-0">
+1940:              <form onSubmit={handleAiSubmit} className="flex gap-2 relative">
+1946:                  className="w-full bg-gray-100 rounded-full pl-4 pr-12 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" 
+1951:                  className="absolute right-1 top-1 bottom-1 w-8 bg-blue-600 text-white rounded-full flex items-center justify-center hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+1962:      <div className="fixed bottom-0 w-full max-w-2xl px-2 pb-4 pt-2 z-20 pointer-events-none flex justify-center">
+1963:        <nav className="pointer-events-auto bg-white/90 backdrop-blur-md border border-gray-200/50 flex justify-around items-center px-1 py-1.5 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] max-w-[95%] w-full sm:max-w-lg overflow-x-auto hide-scrollbar">
+1968:              className={`flex flex-col items-center justify-center p-2 rounded-2xl transition-all ${activeTab === item.id ? 'text-blue-600 bg-blue-50/80 shadow-sm' : 'text-gray-400 hover:text-gray-800 hover:bg-gray-50/50'}`}
+1971:                <item.icon size={22} className={activeTab === item.id ? 'stroke-[2.5px]' : 'stroke-2'} />
+1973:              {activeTab === item.id && <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute -bottom-1 w-1 h-1 bg-blue-600 rounded-full"></motion.span>}

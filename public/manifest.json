@@ -1,0 +1,47 @@
+{
+  "name": "Hospital CMMS & HIMS Portal",
+  "short_name": "Hospital CMMS",
+  "description": "Bilingual Hospital CMMS & HIMS with RTL support, AI Diagnosis Copilot, Live Telehealth, and HR Staff Roster.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#0ea5e9",
+  "categories": ["medical", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "EHR Patients",
+      "short_name": "Patients",
+      "description": "Access patient records promptly",
+      "url": "/?tab=patients",
+      "icons": [{ "src": "/icon.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Work Orders",
+      "short_name": "Orders",
+      "description": "Manage maintenance tasks and emergency dispatches",
+      "url": "/?tab=workOrders",
+      "icons": [{ "src": "/icon.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "AI Diagnose",
+      "short_name": "AI Diagnose",
+      "description": "Start a live telehealth dictation session",
+      "url": "/?tab=consultation",
+      "icons": [{ "src": "/icon.png", "sizes": "192x192" }]
+    }
+  ]
+}

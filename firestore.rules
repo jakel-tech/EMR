@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+       return id is string && id.size() > 0 && id.size() <= 64 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Manufacturers
+    match /manufacturers/{mId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // Hospitals
+    match /hospitals/{hospitalId} {
+      allow read: if isSignedIn();
+      
+      // Assets
+      match /assets/{assetId} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn(); // Simplified for now as per blueprint scope
+      }
+
+      // Backups
+      match /backups/{backupId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && isValidId(hospitalId) && isValidId(backupId);
+        allow delete: if isSignedIn();
+      }
+    }
+
+    // Global Sync DB
+    match /dbBackup/{chunkId} {
+      allow read: if true;
+      allow write: if isValidId(chunkId);
+    }
+  }
+}
