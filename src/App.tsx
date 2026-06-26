@@ -248,6 +248,19 @@ const apiFetch = async (
 
   try {
     const res = await fetch(resource, config);
+    
+    // Safety check for non-JSON responses on API routes
+    if (res.ok && typeof resource === "string" && resource.startsWith("/api")) {
+      const contentType = res.headers.get("content-type");
+      if (contentType && !contentType.includes("application/json")) {
+        console.warn(`API route ${resource} returned non-JSON content: ${contentType}`);
+        // If it's HTML, it's likely the SPA fallback or an error page
+        if (contentType.includes("text/html")) {
+          throw new Error("Server returned HTML instead of JSON. The API route might be missing or the server might be restarting.");
+        }
+      }
+    }
+    
     return res;
   } catch (err: any) {
     if (["POST", "PUT", "DELETE"].includes(method.toUpperCase())) {
@@ -953,7 +966,6 @@ function App() {
   const [isPatientDropdownOpen, setIsPatientDropdownOpen] = useState(false);
   const [selectedPatient, setSelectedPatient] = useState<any>(null);
   const [telehealthMessages, setTelehealthMessages] = useState<any[]>([]);
-  const [sosAlertsList, setSosAlertsList] = useState<any[]>([]);
   const [activeChatPart, setActiveChatPart] = useState<any>(null);
   const [isAnalyzingChat, setIsAnalyzingChat] = useState(false);
   const [chatAnalysis, setChatAnalysis] = useState<string | null>(null);
@@ -1869,40 +1881,15 @@ function App() {
     }
   };
 
-  const fetchSosAlerts = async () => {
-    if (!isLoggedIn || !currentUser || currentUser.name === "Guest") return;
-    try {
-      const res = await apiFetch("/api/sos-alerts");
-      if (res.ok) {
-        const data = await res.json();
-        setSosAlertsList(data);
-      }
-    } catch (err) {
-      console.error("Error fetching SOS alerts:", err);
-    }
-  };
 
-  const resolveSosAlert = async (id: string) => {
-    try {
-      const res = await apiFetch(`/api/sos-alerts/${id}/resolve`, {
-        method: 'PUT'
-      });
-      if (res.ok) {
-        toast.success(isRTL ? "تم حل الإنذار" : "Alert resolved");
-        fetchSosAlerts();
-      }
-    } catch (err) {
-      toast.error(isRTL ? "فشل حل الإنذار" : "Failed to resolve alert");
-    }
-  };
+
+
 
   useEffect(() => {
     if (isLoggedIn && currentUser && currentUser.name !== "Guest") {
       fetchTelehealthMessages();
-      fetchSosAlerts();
       const interval = setInterval(() => {
         fetchTelehealthMessages();
-        fetchSosAlerts();
       }, 5000);
       return () => clearInterval(interval);
     }
@@ -2146,9 +2133,6 @@ function App() {
   const [isGovernanceOpen, setIsGovernanceOpen] = useState(false);
   const [deviceVitalsStream, setDeviceVitalsStream] = useState<any>(null);
 
-  const [sosInputMessage, setSosInputMessage] = useState("");
-  const [sosInputLocation, setSosInputLocation] = useState("");
-
   const [patientRecordSearch, setPatientRecordSearch] = useState("");
   const [patientRecordTab, setPatientRecordTab] = useState("all");
   const [telehealthContactSearch, setTelehealthContactSearch] = useState("");
@@ -2157,19 +2141,6 @@ function App() {
   // Patient Portal Interactive States
   const [patientSelectedScan, setPatientSelectedScan] = useState<any>(null);
   const [patientMedicationFilter, setPatientMedicationFilter] = useState<"all" | "Scheduled" | "Administered">("all");
-
-  const [sosTriggers, setSosTriggers] = useState<{
-    id: string;
-    patientId: string;
-    patientName: string;
-    message: string;
-    location: string;
-    timestamp: string;
-    status: 'Active' | 'Resolved';
-  }[]>(() => {
-    const saved = localStorage.getItem("sos_triggers");
-    return saved ? JSON.parse(saved) : [];
-  });
 
   const [primaryDeptsTab, setPrimaryDeptsTab] = useState<
     "integration" | "patients" | "hospitals" | "labs" | "pharmacies"
@@ -2208,55 +2179,6 @@ function App() {
       localStorage.setItem("hims_hospital_configs", JSON.stringify(updated));
       return updated;
     });
-  };
-
-  const triggerSOS = async (message: string, location: string) => {
-    try {
-      await apiFetch("/api/sos-alerts", {
-        method: "POST",
-        body: JSON.stringify({
-          patient_name: currentUser.name || "Patient",
-          message: message || "General Emergency Alert",
-          location: location || "Not Specified",
-        }),
-      });
-      fetchSosAlerts();
-    } catch (e) {
-      console.error("Error posting SOS alert:", e);
-    }
-
-    const newSOS = {
-      id: "sos-" + Date.now(),
-      patientId: currentUser.id,
-      patientName: currentUser.name || "Patient",
-      message: message || "General Emergency Alert",
-      location: location || "Not Specified",
-      timestamp: new Date().toLocaleString(),
-      status: 'Active' as const,
-    };
-    
-    const updated = [newSOS, ...sosTriggers];
-    setSosTriggers(updated);
-    localStorage.setItem("sos_triggers", JSON.stringify(updated));
-
-    // Also push a system notification so staff see it
-    const newNotif: AppNotification = {
-      id: "notif-sos-" + Date.now(),
-      title: isRTL ? "🚨 نداء استغاثة SOS نشط!" : "🚨 Active SOS Emergency!",
-      message: isRTL 
-        ? `نداء عاجل من المريض ${currentUser.name}: ${message || 'لا توجد تفاصيل'} (الموقع: ${location || 'غير محدد'})`
-        : `Urgent SOS from Patient ${currentUser.name}: ${message || 'No details'} (Loc: ${location || 'Unspecified'})`,
-      read: false,
-      type: "critical",
-      timestamp: isRTL ? "الآن" : "Just now"
-    };
-    setNotifications(prev => [newNotif, ...prev]);
-    toast.error(
-      isRTL 
-        ? `🚨 تم إرسال نداء الاستغاثة فوراً للنظام! سيتم الاتصال بك خلال ثوانٍ.` 
-        : `🚨 Emergency SOS dispatched! Direct assistance is on the way.`,
-      { duration: 8000 }
-    );
   };
 
   const [devicePushHr, setDevicePushHr] = useState("72");
@@ -5739,19 +5661,6 @@ function App() {
         (m) => m.patient_id === currentUser.id || m.patientId === currentUser.id
       ) || [];
 
-      const activeSosAlerts = [
-        ...sosAlertsList.map(item => ({
-          id: item.id,
-          patientId: item.patient_id,
-          patientName: item.patient_name,
-          message: item.message,
-          location: item.location,
-          timestamp: item.timestamp,
-          status: item.status,
-        })),
-        ...sosTriggers.filter(s => s.patientId === currentUser.id && !sosAlertsList.some(live => live.id === s.id))
-      ];
-
       const patientProfile = patients.find(p => p.id === currentUser.id) || currentUser;
 
       const getDeterministicNationalId = (id: string) => {
@@ -5764,12 +5673,6 @@ function App() {
       };
 
       const patientNationalId = patientProfile.nationalId || currentUser.nationalId || currentUser.national_id || getDeterministicNationalId(currentUser.id);
-
-      const handleTriggerSosSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        triggerSOS(sosInputMessage, sosInputLocation);
-        setSosInputMessage("");
-      };
 
       const handleLogVitalsSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -6035,7 +5938,10 @@ function App() {
                     {isRTL ? "تسجيل زيارة لمنشأة طبية" : "Log Hospital Arrival"}
                   </button>
                   <button
-                    onClick={() => setIsTelehealthActive(true)}
+                    onClick={() => {
+                      setIsTelehealthActive(true);
+                      setActiveTab("telehealth");
+                    }}
                     className="bg-white/10 hover:bg-white/20 text-white border border-white/10 font-black text-[10px] px-5 py-3 rounded-2xl active:scale-95 transition-all uppercase tracking-widest flex items-center gap-2"
                   >
                     <MessageSquare size={14} />
@@ -6467,24 +6373,6 @@ function App() {
                 </div>
               </div>
 
-              {/* EMERGENCY SOS DESPATCH CARD */}
-              <div 
-                className="bg-rose-500 text-white rounded-[2.5rem] p-6 shadow-xl shadow-rose-500/20 relative overflow-hidden ring-1 ring-white/10 group cursor-pointer active:scale-[0.98] transition-all font-sans" 
-                onClick={() => triggerSOS(isRTL ? "طلب مساعدة صحية عاجلة من المريض" : "Immediate medical assistance requested", "Home Portal / بوابة المنزل")}
-              >
-                <div className="relative z-10 text-left font-sans">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[9px] font-black uppercase tracking-[0.2em] text-white/70 font-mono">{isRTL ? "نداء استغاثة" : "Emergency SOS"}</span>
-                    <BellRing size={16} className="animate-bounce" />
-                  </div>
-                  <h3 className="text-lg font-black mb-1">{isRTL ? "طلب نجدة طبية عاجلة" : "Request Urgent SOS"}</h3>
-                  <p className="text-white/70 text-[10px] font-semibold leading-relaxed">
-                    {isRTL ? "بنقرة واحدة سيتم إرسال تنبيه ووخز صوتي لغرفة ممرض النوبة لمساعدتك." : "Dispatch urgent coordinates & logs immediately."}
-                  </p>
-                </div>
-                <ShieldAlert size={80} className="absolute -bottom-6 -right-6 text-white/5 rotate-12 group-hover:scale-125 transition-transform" />
-              </div>
-
             </div>
           </div>
 
@@ -6516,11 +6404,13 @@ function App() {
                   
                   {/* Left segment (Interactive Image Canvas) */}
                   <div className="md:col-span-7 flex flex-col space-y-4 font-sans">
-                    <div className="relative aspect-video w-full rounded-2xl bg-neutral-950 overflow-hidden border border-slate-200/50 dark:border-neutral-850 flex items-center justify-center">
-                      <DicomViewer 
-                        dicomData={patientSelectedScan.id === "scan_fallback_mri_01" || patientSelectedScan.modality === "MR" ? "brain_mri" : "chest_xray"} 
-                        fileName={`${patientSelectedScan.id}.dcm`}
-                      />
+                    <div className="relative w-full h-[520px] bg-neutral-950 overflow-hidden flex items-center justify-center cursor-crosshair group rounded-[24px] border border-slate-200/50 dark:border-slate-800 shadow-md">
+                      <div className="w-full h-full">
+                        <DicomViewer 
+                          dicomData={patientSelectedScan.id === "scan_fallback_mri_01" || patientSelectedScan.modality === "MR" ? "brain_mri" : "chest_xray"} 
+                          fileName={`${patientSelectedScan.id}.dcm`}
+                        />
+                      </div>
                       <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-dashed border-emerald-500/20 pointer-events-none" />
                       <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 border-l border-dashed border-emerald-500/20 pointer-events-none" />
                     </div>
@@ -6829,62 +6719,6 @@ function App() {
       const today = new Date().toISOString().split("T")[0];
       return (
         <div className="p-4 sm:p-6 space-y-8 pb-24 max-w-7xl mx-auto">
-          {/* Active Patient SOS Emergency Alerts */}
-          {sosAlertsList.filter(a => a.status === "Active").length > 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-gradient-to-r from-red-600 via-rose-600 to-red-700 rounded-[2.5rem] p-6 text-white border border-rose-500 shadow-2xl relative overflow-hidden"
-            >
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-white/10 via-transparent to-transparent opacity-60"></div>
-              <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="w-2.5 h-2.5 bg-white rounded-full animate-ping"></span>
-                    <h3 className="text-sm font-black uppercase tracking-widest text-white/95">
-                      {isRTL ? "🚨 نداءات استغاثة نشطة (SOS)!" : "🚨 ACTIVE PATIENT EMERGENCIES (SOS)"}
-                    </h3>
-                  </div>
-                  <p className="text-xs text-white/80 font-bold">
-                    {isRTL 
-                      ? "يتطلب هذا الانتباه الفوري من الطاقم الطبي المتطوع والمدير المناوب لتأمين الإسعافات."
-                      : "The following patients have triggered distress alerts and require immediate clinical response."
-                    }
-                  </p>
-                </div>
-                
-                <div className="flex-1 max-w-2xl bg-black/20 rounded-[2rem] p-3.5 border border-white/10 space-y-2">
-                  {sosAlertsList.filter(a => a.status === "Active").map(alert => (
-                    <div key={alert.id} className="flex justify-between items-center bg-black/10 p-3 rounded-2xl border border-white/5 gap-4">
-                      <div>
-                        <p className="text-xs font-black">{alert.patient_name}</p>
-                        <p className="text-[10px] text-white/70 mt-0.5"><span className="font-mono text-glow">{alert.message}</span> {alert.location ? `• ${isRTL ? 'الموقع' : 'Loc'}: ${alert.location}` : ""}</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          try {
-                            await apiFetch(`/api/sos-alerts/${alert.id}`, {
-                              method: "PUT",
-                              body: JSON.stringify({ status: "Resolved" })
-                            });
-                            fetchSosAlerts();
-                            toast.success(isRTL ? "تم إنهاء حالة الطوارئ بنجاح" : "Emergency alert marked resolved!");
-                          } catch (err) {
-                            console.error(err);
-                          }
-                        }}
-                        className="bg-white text-rose-700 font-extrabold uppercase tracking-widest text-[9px] px-3 py-1.5 rounded-xl hover:bg-rose-50 transition-all shrink-0"
-                      >
-                        {isRTL ? "تم الحل" : "Mark Resolved"}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </motion.div>
-          )}
-
           {/* Clinical Productivity Accelerator */}
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 py-2">
             {[
@@ -7543,31 +7377,52 @@ function App() {
     handlePrintHTML(title, html);
   };
 
+  const executePrintWithIframe = (htmlContent: string) => {
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "absolute";
+    iframe.style.width = "0px";
+    iframe.style.height = "0px";
+    iframe.style.border = "none";
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(htmlContent);
+      doc.close();
+
+      setTimeout(() => {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+        setTimeout(() => {
+          if (document.body.contains(iframe)) {
+            document.body.removeChild(iframe);
+          }
+        }, 1000);
+      }, 500);
+    }
+  };
+
   const handlePrintHTML = (title: string, contentHTML: string) => {
-    const activeHospital = hospitals.find((h) => h.id === activeHospitalId);
-    const hospitalName = activeHospital?.name || "JAKEL Medical System";
-    const hospitalLogo = activeHospital?.logo_url
-      ? `<img src="${activeHospital.logo_url}" alt="Hospital Logo" style="max-height: 50px; margin-right: ${isRTL ? "0" : "15px"}; margin-left: ${isRTL ? "15px" : "0"}; vertical-align: middle;" />`
-      : "";
-    const hospitalLogoImg = activeHospital?.logo_url
-      ? `<img src="${activeHospital.logo_url}" alt="Logo" style="max-height: 48px; border-radius: 4px;" />`
+    let instName = hospitals.find((h) => h.id === activeHospitalId)?.name || "JAKEL Medical System";
+    let instLogo = hospitals.find((h) => h.id === activeHospitalId)?.logo_url;
+    
+    if (activeTab === "externalLabs" && externalLabs.length > 0) {
+       // Support for external labs if needed in future
+    }
+
+    const hospitalLogoImg = instLogo
+      ? `<img src="${instLogo}" alt="Logo" style="max-height: 48px; border-radius: 4px;" />`
       : `<span style="font-size: 26px; line-height: 1;">🏥</span><span style="font-size: 11px; font-weight: 900; color: #0284c7; letter-spacing: 2px; margin-top: 4px; font-family: 'Inter', sans-serif;">ROYAL CARE</span>`;
 
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) {
-      toast.error("Please allow popups for printing");
-      return;
-    }
-    printWindow.document.write(`
+    const htmlToPrint = `
       <html dir="${isRTL ? "rtl" : "ltr"}">
         <head>
-          <title>${hospitalName} - ${title}</title>
+          <title>${instName} - ${title}</title>
           <style>
             @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&family=Inter:wght@400;500;600;700;800;950&display=swap');
             
-            * {
-              box-sizing: border-box;
-            }
+            * { box-sizing: border-box; }
             body { 
               font-family: ${isRTL ? '"Cairo", "Inter", sans-serif' : '"Inter", sans-serif'}; 
               padding: 40px; 
@@ -7576,24 +7431,6 @@ function App() {
               direction: ${isRTL ? "rtl" : "ltr"};
               margin: 0;
               line-height: 1.6;
-            }
-            .no-print-btn {
-              position: fixed;
-              bottom: 30px;
-              right: 30px;
-              background-color: #2563eb;
-              color: white;
-              border: none;
-              padding: 12px 24px;
-              border-radius: 9999px;
-              font-size: 14px;
-              font-weight: 800;
-              box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.4);
-              cursor: pointer;
-              z-index: 1000;
-              display: flex;
-              align-items: center;
-              gap: 8px;
             }
             .meta-block {
               text-align: ${isRTL ? "left" : "right"};
@@ -7625,7 +7462,7 @@ function App() {
             /* Info Grid block styles */
             .info-grid {
               display: grid;
-              grid-template-cols: repeat(4, 1fr);
+              grid-template-columns: repeat(4, 1fr);
               gap: 15px;
               margin-bottom: 25px;
               background-color: #f8fafc;
@@ -7633,107 +7470,15 @@ function App() {
               border-radius: 12px;
               border: 1px solid #f1f5f9;
             }
-            .info-card {
-              display: flex;
-              flex-direction: column;
-            }
-            .info-label {
-              font-size: 9px;
-              color: #64748b;
-              text-transform: uppercase;
-              font-weight: 700;
-              letter-spacing: 0.5px;
-              margin-bottom: 4px;
-            }
-            .info-value {
-              font-size: 13px;
-              font-weight: 700;
-              color: #1e293b;
-            }
-            .font-mono {
-              font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
-            }
-
-            /* Timeline Style */
-            .timeline {
-              margin-top: 15px;
-              border-right: ${isRTL ? "3px solid #e2e8f0" : "none"};
-              border-left: ${isRTL ? "none" : "3px solid #e2e8f0"};
-              padding-right: ${isRTL ? "20px" : "0"};
-              padding-left: ${isRTL ? "0" : "20px"};
-              margin-right: ${isRTL ? "10px" : "0"};
-              margin-left: ${isRTL ? "0" : "10px"};
-            }
-            .timeline-item {
-              position: relative;
-              margin-bottom: 25px;
-            }
-            .timeline-item::before {
-              content: '';
-              position: absolute;
-              top: 5px;
-              right: ${isRTL ? "-26.5px" : "auto"};
-              left: ${isRTL ? "auto" : "-26.5px"};
-              width: 11px;
-              height: 11px;
-              border-radius: 50%;
-              background-color: #2563eb;
-              border: 2px solid white;
-            }
-            .item-header {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              margin-bottom: 6px;
-            }
-            .item-title {
-              font-size: 13px;
-              font-weight: 800;
-              color: #0f172a;
-            }
-            .item-date {
-              font-size: 11px;
-              font-weight: 700;
-              color: #64748b;
-              background-color: #f1f5f9;
-              padding: 2px 10px;
-              border-radius: 9999px;
-            }
-            .item-body {
-              font-size: 12px;
-              color: #334155;
-              background-color: #f8fafc;
-              padding: 15px;
-              border-radius: 10px;
-              border: 1px solid #f1f5f9;
-            }
-            .item-body p {
-              margin: 4px 0;
-            }
-
-            /* Table Style */
+            .info-card { display: flex; flex-direction: column; }
+            .info-label { font-size: 9px; color: #64748b; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; margin-bottom: 4px; }
+            .info-value { font-size: 13px; font-weight: 700; color: #1e293b; }
+            
             table { width: 100%; border-collapse: collapse; margin-top: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
             th, td { border: 1px solid #cbd5e1; padding: 10px 14px; text-align: ${isRTL ? "right" : "left"}; font-size: 11px; }
             th { background-color: #f8fafc; font-weight: 750; color: #475569; border-bottom: 2px solid #cbd5e1; font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; }
             tr:nth-child(even) { background-color: #fafaf9; }
-            .print-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; border-bottom: 3px solid #0f172a; padding-bottom: 20px;}
-            .print-header-left { display: flex; align-items: center; gap: 15px; }
-            .print-header h2 { margin: 0; color: #2563eb; font-size: 18px; font-weight: 850; }
-            .print-header p { margin: 5px 0 0 0; color: #64748b; font-size: 12px; text-align: ${isRTL ? "left" : "right"}; font-weight: 550; }
-            img { max-width: 100%; height: auto; border-radius: 8px; margin-top: 10px; }
             
-            /* Badge Style */
-            .badge {
-              padding: 2px 8px;
-              border-radius: 9999px;
-              font-size: 9px;
-              font-weight: 800;
-              text-transform: uppercase;
-            }
-            .badge-laboratory { background-color: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
-            .badge-imaging { background-color: #faf5ff; color: #6b21a8; border: 1px solid #e9d5ff; }
-            .badge-other { background-color: #f8fafc; color: #475569; border: 1px solid #e2e8f0; }
-
             /* Status Style */
             .status-indicator {
               padding: 2px 8px;
@@ -7749,7 +7494,7 @@ function App() {
             /* Financial summary cards */
             .financial-summary {
               display: grid;
-              grid-template-cols: repeat(3, 1fr);
+              grid-template-columns: repeat(3, 1fr);
               gap: 15px;
               margin-bottom: 20px;
             }
@@ -7761,64 +7506,31 @@ function App() {
               display: flex;
               flex-direction: column;
             }
-            .fin-card.success {
-              background-color: #ecfdf5;
-              border-color: #a7f3d0;
-            }
-            .fin-card.danger {
-              background-color: #fef2f2;
-              border-color: #fca5a5;
-            }
-            .fin-label {
-              font-size: 9px;
-              font-weight: 700;
-              text-transform: uppercase;
-              color: #64748b;
-              margin-bottom: 4px;
-            }
-            .fin-val {
-              font-size: 16px;
-              font-weight: 900;
-              color: #0f172a;
-            }
+            .fin-card.success { background-color: #ecfdf5; border-color: #a7f3d0; }
+            .fin-card.danger { background-color: #fef2f2; border-color: #fca5a5; }
+            .fin-label { font-size: 9px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 4px; }
+            .fin-val { font-size: 16px; font-weight: 900; color: #0f172a; }
             .success .fin-label { color: #065f46; }
             .success .fin-val { color: #047857; }
             .danger .fin-label { color: #991b1b; }
             .danger .fin-val { color: #b91c1c; }
-            
-            .no-data {
-              font-size: 12px;
-              text-align: center;
-              color: #94a3b8;
-              padding: 30px;
-              background-color: #f8fafc;
-              border: 1px dashed #cbd5e1;
-              border-radius: 12px;
-            }
 
             @media print {
               .no-print-btn { display: none; }
               body { padding: 0; }
-              @page { 
-                size: A4;
-                margin: 15mm; 
-              }
+              @page { size: A4; margin: 15mm; }
             }
           </style>
         </head>
         <body>
-          <button class="no-print-btn" onclick="window.print()">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
-            <span>${isRTL ? "بدء الطباعة" : "Print Document"}</span>
-          </button>
           <!-- Premium Official Sudanese / Accredited Hospital Letterhead -->
           <div class="print-letterhead" style="border-bottom: 4px solid #0284c7; padding-bottom: 12px; margin-bottom: 25px; font-family: 'Cairo', 'Inter', sans-serif;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
               <!-- LEFT: English Hospital Metadata & Accreditation -->
               <div style="text-align: left; width: 40%; line-height: 1.3;">
-                <h2 style="margin: 0; font-size: 14px; font-weight: 800; color: #0284c7;">${hospitalName.toUpperCase()}</h2>
-                <p style="margin: 2px 0 0 0; font-size: 9px; font-weight: bold; color: #64748b; text-transform: uppercase;">${activeHospital?.slogan || "Sudan Federal Ministry of Health Approved"}</p>
-                <p style="margin: 2px 0 0 0; font-size: 8px; color: #94a3b8; font-family: monospace;">Lic. No: ${activeHospital?.license_code || "FMOH/KRT/902-DX • General Hospital Division"}</p>
+                <h2 style="margin: 0; font-size: 14px; font-weight: 800; color: #0284c7;">${instName.toUpperCase()}</h2>
+                <p style="margin: 2px 0 0 0; font-size: 9px; font-weight: bold; color: #64748b; text-transform: uppercase;">${hospitals.find((h) => h.id === activeHospitalId)?.slogan || "Sudan Federal Ministry of Health Approved"}</p>
+                <p style="margin: 2px 0 0 0; font-size: 8px; color: #94a3b8; font-family: monospace;">Lic. No: ${hospitals.find((h) => h.id === activeHospitalId)?.license_code || "FMOH/KRT/902-DX • General Hospital Division"}</p>
                 <p style="margin: 1px 0 0 0; font-size: 8px; color: #94a3b8; font-family: monospace;">Accredited: Joint Commission International (JCI)</p>
               </div>
               
@@ -7831,9 +7543,9 @@ function App() {
               
               <!-- RIGHT: Arabic Hospital Metadata & Accreditation -->
               <div style="text-align: right; width: 40%; line-height: 1.3; direction: rtl;">
-                <h2 style="margin: 0; font-size: 14px; font-weight: 800; color: #0284c7;">${isRTL ? hospitalName : "مستشفى " + hospitalName}</h2>
-                <p style="margin: 2px 0 0 0; font-size: 9px; font-weight: bold; color: #64748b;">${isRTL ? (activeHospital?.slogan || "جمهورية السودان - وزارة الصحة") : "جمهورية السودان - وزارة الصحة الاتحادية - ولاية الخرطوم"}</p>
-                <p style="margin: 2px 0 0 0; font-size: 8px; color: #94a3b8; font-family: monospace;">ترخيص رقم: ${activeHospital?.license_code || "و.ص/خ/902-د • قسم الجراحة التخصصية والتشخيص"}</p>
+                <h2 style="margin: 0; font-size: 14px; font-weight: 800; color: #0284c7;">${isRTL ? instName : "مستشفى " + instName}</h2>
+                <p style="margin: 2px 0 0 0; font-size: 9px; font-weight: bold; color: #64748b;">${isRTL ? (hospitals.find((h) => h.id === activeHospitalId)?.slogan || "جمهورية السودان - وزارة الصحة") : "جمهورية السودان - وزارة الصحة الاتحادية - ولاية الخرطوم"}</p>
+                <p style="margin: 2px 0 0 0; font-size: 8px; color: #94a3b8; font-family: monospace;">ترخيص رقم: ${hospitals.find((h) => h.id === activeHospitalId)?.license_code || "و.ص/خ/902-د • قسم الجراحة التخصصية والتشخيص"}</p>
                 <p style="margin: 1px 0 0 0; font-size: 8px; color: #94a3b8;">معتمد لدى الهيئة العامة للتأمين الصحي القومي</p>
               </div>
             </div>
@@ -7860,9 +7572,9 @@ function App() {
             <div style="text-align: left; width: 40%; line-height: 1.4;">
               <p style="margin: 0; font-weight: bold; color: #0f172a; font-size: 9px; text-transform: uppercase;">HQ General & Surgical Emergency Division</p>
               <p style="margin: 4px 0 0 0; color: #64748b; font-size: 8px;">
-                📍 Address: ${activeHospital?.address || "Al-Mashtal St, Riyadh, Khartoum, Republic of Sudan"}<br/>
-                📞 Phone: ${activeHospital?.contact_phone || "+249 183 999 888 | Emergency Core: 990"}<br/>
-                ✉️ Email: ${activeHospital?.contact_email || "info@royalcare.medical.sd"} | Medical Director: ${activeHospital?.director_name || "Dr. Mazin Al-Tijani"}
+                📍 Address: ${hospitals.find((h) => h.id === activeHospitalId)?.address || "Al-Mashtal St, Riyadh, Khartoum, Republic of Sudan"}<br/>
+                📞 Phone: ${hospitals.find((h) => h.id === activeHospitalId)?.contact_phone || "+249 183 999 888 | Emergency Core: 990"}<br/>
+                ✉️ Email: ${hospitals.find((h) => h.id === activeHospitalId)?.contact_email || "info@royalcare.medical.sd"} | Medical Director: ${hospitals.find((h) => h.id === activeHospitalId)?.director_name || "Dr. Mazin Al-Tijani"}
               </p>
             </div>
             
@@ -7880,29 +7592,21 @@ function App() {
             <div style="text-align: right; width: 35%; direction: rtl; line-height: 1.4;">
               <p style="margin: 0; font-weight: bold; color: #0f172a; font-size: 9px;">الإدارة الطبية العامة والطوارئ الجراحية</p>
               <p style="margin: 4px 0 0 0; color: #64748b; font-size: 8px;">
-                📍 العنوان: ${activeHospital?.address || "جمهورية السودان، ولاية الخرطوم - الرياض، شارع المشتل"}<br/>
-                📞 الطوارئ والاستعلامات: 990 | هاتف المركز: ${activeHospital?.contact_phone || "+249183999888"}<br/>
+                📍 العنوان: ${hospitals.find((h) => h.id === activeHospitalId)?.address || "جمهورية السودان، ولاية الخرطوم - الرياض، شارع المشتل"}<br/>
+                📞 الطوارئ والاستعلامات: 990 | هاتف المركز: ${hospitals.find((h) => h.id === activeHospitalId)?.contact_phone || "+249183999888"}<br/>
                 🔒 السجل السريري مؤمن ومشفر بالكامل بمركز البيانات الوطني.
               </p>
             </div>
-            
           </div>
           
           <div style="width: 100%; border-top: 1px dashed #e2e8f0; padding-top: 6px; margin-top: 12px; text-align: center; font-size: 8px; color: #94a3b8; font-family: monospace;">
             DOCUMENT HASH-SIGNATURE: SHA256-JMC-HIMS-VERIFY-${Math.floor(100000 + Math.random() * 900000)} • CONFIDENTIAL CLASS-A CLINICAL DATA
           </div>
-
-          <script>
-            window.onload = function() { 
-              setTimeout(function() {
-                window.print();
-              }, 500); 
-            }
-          </script>
         </body>
       </html>
-    `);
-    printWindow.document.close();
+    `;
+
+    executePrintWithIframe(htmlToPrint);
   };
 
   const getPatientInfoGridHTML = (patient: any) => {
@@ -7948,7 +7652,7 @@ function App() {
     `;
   };
 
-  const handlePrintInvoice = (bill: any) => {
+  const handlePrintInvoice = (bill: any, paperSize: "A4" | "80mm" = "A4") => {
     const patientObj = patients.find((p) => p.id === bill.patientId);
     const infoGrid = getPatientInfoGridHTML(patientObj);
     const title = isRTL ? "فاتورة مالية وتفاصيل الرسوم الطبية" : "Official Patient Invoice Receipt";
@@ -7967,6 +7671,107 @@ function App() {
     const insurancePaid = Number(bill.insurance_covered_amount || 0);
     const copayPaid = Number(bill.patient_copay_amount || 0);
     const hasInsurance = insurancePaid > 0;
+
+    const activeHospital = hospitals.find((h) => h.id === activeHospitalId);
+    const hospitalName = activeHospital?.name || "JAKEL Medical System";
+
+    if (paperSize === "80mm") {
+      const htmlContent = `
+        <html dir="${isRTL ? "rtl" : "ltr"}">
+          <head>
+            <title>${hospitalName} - Receipt</title>
+            <style>
+              @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&family=Inter:wght@400;500;600;700;800;950&display=swap');
+              @page { margin: 0; size: 80mm auto; }
+              body { 
+                font-family: ${isRTL ? '"Cairo", "Inter", sans-serif' : '"Inter", sans-serif'}; 
+                margin: 0; 
+                padding: 5mm; 
+                width: 80mm; 
+                background: white;
+                color: #000;
+                font-size: 12px;
+                direction: ${isRTL ? "rtl" : "ltr"};
+              }
+              * { box-sizing: border-box; }
+              .text-center { text-align: center; }
+              .mb-1 { margin-bottom: 4px; }
+              .mb-2 { margin-bottom: 8px; }
+              .mb-4 { margin-bottom: 16px; }
+              .font-bold { font-weight: 700; }
+              .font-black { font-weight: 900; }
+              .text-sm { font-size: 14px; }
+              .text-lg { font-size: 18px; }
+              .border-b { border-bottom: 1px dashed #000; padding-bottom: 8px; margin-bottom: 8px; }
+              .flex-between { display: flex; justify-content: space-between; margin-bottom: 4px; }
+              .label { color: #555; }
+              .value { font-weight: 700; }
+              .total-row { font-size: 14px; font-weight: 900; border-top: 1px dashed #000; padding-top: 8px; margin-top: 4px; }
+              @media print {
+                .no-print { display: none !important; }
+              }
+            </style>
+          </head>
+          <body>
+            <div class="text-center border-b">
+              ${activeHospital?.logo_url ? `<img src="${activeHospital.logo_url}" style="max-height: 40px; margin-bottom: 4px;" /><br>` : ""}
+              <div class="font-black text-lg mb-1">${hospitalName}</div>
+              <div>${isRTL ? "إيصال سداد نقدي" : "Payment Receipt"}</div>
+              <div style="font-size: 10px; color: #666;">ID: #${bill.id.substring(0,8)}</div>
+              <div style="font-size: 10px; color: #666;">Date: ${bill.date}</div>
+            </div>
+
+            <div class="border-b" style="margin-top: 8px;">
+              <div class="flex-between">
+                <span class="label">${isRTL ? "المريض:" : "Patient:"}</span>
+                <span class="value">${patientObj?.name || "N/A"}</span>
+              </div>
+              <div class="flex-between">
+                <span class="label">${isRTL ? "الحالة:" : "Status:"}</span>
+                <span class="value">${statusText}</span>
+              </div>
+              <div class="flex-between">
+                <span class="label">${isRTL ? "الخدمة:" : "Service:"}</span>
+                <span class="value text-center" style="font-size: 10px; max-width: 50%;">${serviceStageText}</span>
+              </div>
+            </div>
+
+            <div class="border-b" style="margin-top: 8px;">
+              <div class="flex-between">
+                <span class="label">${isRTL ? "الإجمالي:" : "Total:"}</span>
+                <span class="value">${currencySymbol}${Number(bill.amount).toFixed(2)}</span>
+              </div>
+              ${hasInsurance ? `
+              <div class="flex-between" style="font-size: 10px;">
+                <span class="label">${isRTL ? "تغطية التأمين:" : "Ins. Cover:"}</span>
+                <span class="value">${currencySymbol}${insurancePaid.toFixed(2)}</span>
+              </div>
+              <div class="flex-between total-row">
+                <span>${isRTL ? "المطلوب سداده:" : "Patient Co-Pay:"}</span>
+                <span>${currencySymbol}${copayPaid > 0 ? copayPaid.toFixed(2) : Number(bill.amount).toFixed(2)}</span>
+              </div>
+              ` : `
+              <div class="flex-between total-row">
+                <span>${isRTL ? "الصافي:" : "Net Due:"}</span>
+                <span>${currencySymbol}${Number(bill.amount).toFixed(2)}</span>
+              </div>
+              `}
+            </div>
+
+            <div class="text-center" style="font-size: 9px; color: #555; margin-top: 16px;">
+              <div>${isRTL ? "الرقم الضريبي:" : "TIN ID:"} fmoh-tin-9981-802-sd</div>
+              <div>${isRTL ? "شكراً لزيارتكم" : "Thank you for your visit"}</div>
+            </div>
+
+            <button onclick="window.print()" class="no-print" style="width: 100%; padding: 10px; margin-top: 20px; background: #2563eb; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">
+              ${isRTL ? "طباعة" : "Print"}
+            </button>
+          </body>
+        </html>
+      `;
+      executePrintWithIframe(htmlContent);
+      return;
+    }
 
     const content = `
       ${infoGrid}
@@ -8026,8 +7831,8 @@ function App() {
         </div>
         <div style="text-align: ${isRTL ? "left" : "right"}; width: 220px; border-bottom: 2px solid #0f172a; padding-bottom: 4px;">
           <p style="margin: 0; font-size: 8px; color: #64748b; text-transform: uppercase;">${isRTL ? "أمين الصندوق / المحاسب المالي" : "CHIEF FISCAL OFFICER SIGNATURE"}</p>
-          <p style="margin: 20px 0 0 0; font-size: 11px; font-weight: 800; color: #0f172a;">${currentUser.name}</p>
-          <p style="margin: 2px 0 0 0; font-size: 8px; color: #64748b; font-weight: 600;">Reg Code: fmoh-finance-${currentUser.id.substring(0,4)}</p>
+          <p style="margin: 20px 0 0 0; font-size: 11px; font-weight: 800; color: #0f172a;">${currentUser?.name || "System Admin"}</p>
+          <p style="margin: 2px 0 0 0; font-size: 8px; color: #64748b; font-weight: 600;">Reg Code: fmoh-finance-${currentUser?.id?.substring(0,4) || "0000"}</p>
         </div>
       </div>
     `;
@@ -8058,16 +7863,6 @@ function App() {
     const patientPharmacy = pharmacySales.filter(
       (ps: any) => ps.buyer_name === patient.name,
     );
-
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) {
-      toast.error(
-        isRTL
-          ? "يرجى تفعيل النوافذ المنبثقة للطباعة"
-          : "Please allow popups for printing",
-      );
-      return;
-    }
 
     const age = patient.dob
       ? new Date().getFullYear() - new Date(patient.dob).getFullYear()
@@ -8291,7 +8086,7 @@ function App() {
             ? "أخرى"
             : "Other";
 
-    printWindow.document.write(`
+    const finalHtml = `
       <html dir="${isRTL ? "rtl" : "ltr"}">
         <head>
           <title>${hospitalName} - ${isRTL ? "ملف المريض الطبي" : "Patient Medical File"}</title>
@@ -8752,18 +8547,12 @@ function App() {
           </div>
         </body>
       </html>
-    `);
-    printWindow.document.close();
+    `;
+    executePrintWithIframe(finalHtml);
   };
 
   const handlePrintLabReport = () => {
     const patient = patients.find((p) => p.id === labPatientId) || patients[0];
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) {
-      toast.error("Please allow popups for printing");
-      return;
-    }
-
     // Build the metrics table based on current active panel
     let panelTitleEn = "";
     let panelTitleAr = "";
@@ -9186,19 +8975,10 @@ function App() {
           LAB-CHECKSUM-SIGNATURE: SHA256-JMC-LABS-VERIFY-\${Math.floor(100000 + Math.random() * 900000)} • HEAD PATHOLOGIST: DR. EVELYN HARRISS MD
         </div>
 
-        <script>
-          window.onload = function() { 
-            setTimeout(function() {
-              window.print();
-            }, 600); 
-          }
-        </script>
-      </body>
       </html>
     `;
 
-    printWindow.document.write(html);
-    printWindow.document.close();
+    executePrintWithIframe(html);
   };
 
   const handlePrintReport = () => {
@@ -9209,12 +8989,9 @@ function App() {
       ? `<img src="${activeHospital.logo_url}" alt="Hospital Logo" style="max-height: 60px; margin-right: ${isRTL ? "0" : "15px"}; margin-left: ${isRTL ? "15px" : "0"}; vertical-align: middle;" />`
       : "";
 
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) return;
-
-    let reportSignatureImgRaw = reportSignatureImg;
     const currentSigner =
       users.find((u) => u.id === reportSignerId) || currentUser;
+    let reportSignatureImgRaw = reportSignatureImg;
     let reportTitle = "";
 
     // Auto-fill signature if staff has it in profile and they are the one signing
@@ -9573,20 +9350,10 @@ function App() {
               </div>
             </div>
           </div>
-          <script>
-            window.onload = function() { 
-              setTimeout(function() {
-                window.print(); 
-                window.close(); 
-              }, 500);
-            }
-          </script>
-        </body>
       </html>
     `;
 
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
+    executePrintWithIframe(htmlContent);
   };
 
   const renderReports = () => (
@@ -13687,8 +13454,9 @@ function App() {
                             method: "POST",
                             body: JSON.stringify({ email })
                           });
-                          if (res.message) toast.success(res.message);
-                          else toast.error(res.error || "Failed to send test email");
+                          const data = await res.json();
+                          if (res.ok && data.message) toast.success(data.message);
+                          else toast.error(data.error || "Failed to send test email");
                         } catch (err) {
                           toast.error("Network error testing email");
                         }
@@ -14634,9 +14402,7 @@ function App() {
                               onClick={(e) => {
                                 e.stopPropagation();
                                 // Elegant custom print slip popup
-                                const printWindow = window.open("", "_blank");
-                                if (printWindow) {
-                                  printWindow.document.write(`
+                                const htmlSlip = `
                                     <html>
                                       <head>
                                         <title>ISO-13485 Clinical Care Compliance Slip - Log #${log.id}</title>
@@ -14687,12 +14453,10 @@ function App() {
                                           <h4>${log.quality_signature || "SYSTEM CLINICAL ADMINISTRATOR"}</h4>
                                           <p>JAKEL.CO CMMS • New York, NY</p>
                                         </div>
-                                        <script>window.print();</script>
                                       </body>
                                     </html>
-                                  `);
-                                  printWindow.document.close();
-                                }
+                                  `;
+                                  executePrintWithIframe(htmlSlip);
                               }}
                               className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg font-black text-[9px] uppercase tracking-widest transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5"
                             >
@@ -21792,8 +21556,8 @@ function App() {
                         transition={{ delay: i * 0.02 }}
                         key={p.id}
                         onClick={() =>
-                          hasPermission("edit", "patient") &&
-                          openModal("patient", p)
+                          (hasPermission("view", "patient") || hasPermission("edit", "patient")) &&
+                          setInspectingPatientId(p.id)
                         }
                         className="p-5 bg-white/70 hover:bg-white rounded-[2rem] border border-slate-100/50 hover:shadow-xl hover:shadow-primary-600/5 transition-all cursor-pointer flex justify-between items-center group relative overflow-hidden active:scale-[0.98]"
                       >
@@ -21806,34 +21570,12 @@ function App() {
                               className="w-full h-full object-cover"
                               referrerPolicy="no-referrer"
                             />
-                            {!activeRevealedNames[p.id] && (
-                              <div className="absolute inset-0 bg-slate-900/60 flex items-center justify-center text-white font-black text-sm">
-                                🔒
-                              </div>
-                            )}
                           </div>
                           <div>
                             <div className="flex items-center gap-2 mb-1.5">
                               <h4 className="font-black text-sm text-slate-800 leading-none group-hover:text-primary-600 transition-colors uppercase tracking-tight">
-                                {activeRevealedNames[p.id] ? p.name : "••••••••"}
+                                {p.name}
                               </h4>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setRevealedNames((prev) => ({
-                                    ...prev,
-                                    [p.id]: !prev[p.id],
-                                  }));
-                                }}
-                                className="p-1 px-1.5 text-slate-400 hover:text-white hover:bg-primary-600 rounded-lg transition-all cursor-pointer shadow-sm border border-slate-100 inline-flex items-center justify-center bg-white"
-                              >
-                                {activeRevealedNames[p.id] ? (
-                                  <EyeOff size={11} />
-                                ) : (
-                                  <Eye size={11} />
-                                )}
-                              </button>
                             </div>
                             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none">
                               {p.nationalId && (
@@ -23482,209 +23224,7 @@ function App() {
                   )}
                 </div>
 
-                {/* EMR Clinician Inspector Modal */}
-                {inspectingPatientId && (
-                  (() => {
-                    const patient = patients.find(p => p.id === inspectingPatientId);
-                    const patientRecords = medicalRecords.filter(r => r.patientId === inspectingPatientId);
-                    const patientDxs = examinations.filter(e => e.patientId === inspectingPatientId);
-                    return (
-                      <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-                        <div className="bg-white dark:bg-slate-900 max-w-2xl w-full rounded-[2.5rem] border border-slate-100 dark:border-slate-800 p-6 shadow-2xl space-y-6 max-h-[85vh] overflow-y-auto customize-scrollbar">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <span className="text-[8px] bg-rose-500/10 text-rose-500 border border-rose-500/20 px-3 py-1 rounded-full text-xs font-black uppercase tracking-widest block w-fit mb-2">
-                                {isRTL ? "الملف السريري الإلكتروني الموحد" : "Electronic Medical Record (EMR)"}
-                              </span>
-                              <h3 className="text-xl font-black text-slate-800 dark:text-slate-100 uppercase tracking-tight">
-                                {patient?.name}
-                              </h3>
-                              <p className="text-xs text-slate-400 font-bold mt-1">
-                                Dob: {patient?.dob} • Gender: {patient?.gender} • Blood Group: {patient?.bloodType}
-                              </p>
-                            </div>
-                            <button
-                              onClick={() => setInspectingPatientId(null)}
-                              className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 hover:text-slate-800 cursor-pointer font-black"
-                            >
-                              ✕
-                            </button>
-                          </div>
-
-                          {/* Quick Clinical Summary */}
-                          <div className="grid grid-cols-3 gap-3">
-                            <div className="p-3 bg-rose-50/50 dark:bg-rose-950/10 rounded-xl text-center">
-                              <span className="text-[8px] font-black uppercase text-rose-500 tracking-wider block">{isRTL ? "الحساسية" : "Allergies"}</span>
-                              <span className="text-xs font-bold text-slate-700 dark:text-slate-350 mt-1 block truncate">
-                                {patient?.allergies || (isRTL ? "لا توجد" : "None")}
-                              </span>
-                            </div>
-                            <div className="p-3 bg-purple-50/50 dark:bg-purple-950/10 rounded-xl text-center">
-                              <span className="text-[8px] font-black uppercase text-purple-500 tracking-wider block">{isRTL ? "الزيارات والمذكرات" : "Clinics Notes"}</span>
-                              <span className="text-xs font-bold text-slate-700 dark:text-slate-350 mt-1 block">
-                                {patientRecords.length} {isRTL ? "سجلات" : "Logs"}
-                              </span>
-                            </div>
-                            <div className="p-3 bg-blue-50/50 dark:bg-blue-950/10 rounded-xl text-center">
-                              <span className="text-[8px] font-black uppercase text-blue-500 tracking-wider block">{isRTL ? "الفحوص والتحاليل" : "Lab Diagnostics"}</span>
-                              <span className="text-xs font-bold text-slate-700 dark:text-slate-350 mt-1 block font-bold">
-                                {patientDxs.length} {isRTL ? "تحليل" : "Tests"}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Visitation entries & prescriptions timeline (Patient Journey) */}
-                          <div className="space-y-4">
-                            <div className="flex justify-between items-center border-b border-dashed border-slate-150 pb-1.5">
-                              <h4 className="text-xs font-black uppercase tracking-widest text-slate-400">
-                                🚀 {isRTL ? "رحلة المريض الطبية (Patient Journey)" : "Patient Clinical Journey Timeline"}
-                              </h4>
-                              {hasPermission("add", "medicalRecord") && (
-                                <button
-                                  onClick={() => {
-                                    setInspectingPatientId(null);
-                                    openModal("medicalRecord", { patientId: inspectingPatientId });
-                                  }}
-                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 rounded-lg text-[10px] font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
-                                >
-                                  <span>+</span>
-                                  {isRTL ? "اضافة مقابلة طبيب" : "Doctor Check-In"}
-                                </button>
-                              )}
-                            </div>
-
-                            <div className="space-y-3.5 max-h-[350px] overflow-y-auto pr-1 customize-scrollbar font-sans">
-                              {patientRecords.map((rec, idxVal) => {
-                                const visitDxs = patientDxs.filter(e => e.date === rec.visitDate || !e.date); // Rough correlation by date
-                                return (
-                                <div key={rec.id || idxVal} className="relative pl-6 pb-6 border-l-2 border-indigo-100 dark:border-indigo-900 last:border-0 last:pb-0">
-                                  <div className="absolute top-0 -left-[11px] w-5 h-5 rounded-full bg-indigo-500 border-4 border-white dark:border-slate-900 shadow-sm" />
-                                  <div className="p-4 bg-slate-50 dark:bg-slate-950/40 border border-slate-100 dark:border-slate-850 rounded-2xl space-y-4">
-                                    <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 pb-2 border-b border-slate-100 dark:border-slate-800">
-                                      <span>📅 {isRTL ? "تاريخ الزيارة:" : "Visit Date:"} {rec.visitDate}</span>
-                                      <span className="bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded uppercase font-mono tracking-wider text-[9px]">CODE: {rec.id}</span>
-                                    </div>
-                                    
-                                    {/* Stage 1: Meet Doctor */}
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-1.5 text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">
-                                        <span>1️⃣</span> {isRTL ? "مقابلة الطبيب والتشخيص" : "Doctor Check-In & Diagnosis"}
-                                      </div>
-                                      <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 pl-6">
-                                        {rec.diagnosis || (isRTL ? "فحص عام وتقييم مبدئي" : "General assessment and checkup")}
-                                      </p>
-                                    </div>
-
-                                    {/* Stage 2: Examinations */}
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-1.5 text-xs font-black text-purple-600 dark:text-purple-400 uppercase tracking-widest">
-                                        <span>2️⃣</span> {isRTL ? "الفحوصات والأشعة" : "Diagnostics & Examinations"}
-                                      </div>
-                                      {visitDxs.length > 0 ? (
-                                        <div className="pl-6 space-y-1">
-                                          {visitDxs.map((dx, dIdx) => (
-                                            <div key={dIdx} className="text-[11px] text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-md p-1.5">
-                                              🔬 {dx.testName} - <span className="font-bold">{dx.status}</span>
-                                              {dx.result && <span className="block mt-1 font-mono text-[10px] text-purple-700 dark:text-purple-400">Result: {dx.result}</span>}
-                                            </div>
-                                          ))}
-                                        </div>
-                                      ) : (
-                                        <p className="text-[10px] text-slate-400 italic pl-6">{isRTL ? "لم يتم طلب فحوصات" : "No examinations requested"}</p>
-                                      )}
-                                    </div>
-
-                                    {/* Stage 3: Treatments & Instructions */}
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-1.5 text-xs font-black text-amber-600 dark:text-amber-500 uppercase tracking-widest">
-                                        <span>3️⃣</span> {isRTL ? "تحديد العلاج وإرشادات الطبيب" : "Treatments & Doctor Instructions"}
-                                      </div>
-                                      <div className="pl-6 space-y-2">
-                                        <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                                          {rec.treatment || (isRTL ? "متابعة الحالة وفق الإرشادات" : "Monitor symptoms as directed")}
-                                        </p>
-                                        <div className="bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/50 p-2 rounded-lg text-xs">
-                                          <span className="font-bold text-amber-700 dark:text-amber-400 block mb-0.5">📌 {isRTL ? "إرشادات الطبيب:" : "Clinical Instructions:"}</span>
-                                          <p className="text-amber-900/80 dark:text-amber-300/80 font-medium">{rec.doctorInstructions || rec.notes || (isRTL ? "الراحة والالتزام بمواعيد الدواء" : "Rest and medication adherence")}</p>
-                                        </div>
-                                      </div>
-                                    </div>
-
-                                    {/* Stage 4: Pharmacy Dispensing */}
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-1.5 text-xs font-black text-emerald-600 dark:text-emerald-500 uppercase tracking-widest">
-                                        <span>4️⃣</span> {isRTL ? "صرف الدواء من الصيدلية" : "Pharmacy Dispensing"}
-                                      </div>
-                                      <div className="pl-6">
-                                        {rec.prescription ? (
-                                          <div className="p-2 bg-emerald-50/80 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/50 rounded-lg text-xs">
-                                            <span className="font-bold text-emerald-700 dark:text-emerald-400 block mb-0.5">💊 {isRTL ? "الأدوية الموصوفة:" : "Prescribed Medication:"}</span>
-                                            <p className="font-semibold text-slate-700 dark:text-emerald-100/70">{rec.prescription}</p>
-                                          </div>
-                                        ) : (
-                                          <p className="text-[10px] text-slate-400 italic">{isRTL ? "لم يتم وصف أدوية" : "No active prescriptions"}</p>
-                                        )}
-                                      </div>
-                                    </div>
-
-                                  </div>
-                                </div>
-                                );
-                              })}
-
-                              {patientRecords.length === 0 && (
-                                <div className="text-center py-8 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 text-slate-400 font-bold text-xs uppercase tracking-wider">
-                                  {isRTL ? "لا توجد زيارات مسجلة لهذا المريض لبدء رحلة العلاج." : "No clinical visits on file to display patient journey."}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Diagnostics & Examinations */}
-                          <div className="space-y-4 pt-2">
-                            <h4 className="text-xs font-black uppercase tracking-widest text-slate-400 border-b border-dashed border-slate-150 pb-1.5 font-sans">
-                              🧪 {isRTL ? "نتائج الفحوص المخبرية والأشعة" : "Active Diagnostics & Radiography Reports"}
-                            </h4>
-
-                            <div className="space-y-3 max-h-[200px] overflow-y-auto pr-1">
-                              {patientDxs.map((dx, idxVal) => (
-                                <div key={dx.id || idxVal} className="p-3 bg-purple-500/5 dark:bg-purple-500/10 border border-purple-500/10 rounded-xl flex justify-between items-start text-xs">
-                                  <div>
-                                    <span className="font-extrabold text-slate-800 dark:text-slate-200 block">{dx.testName}</span>
-                                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
-                                      {dx.priority} • {isRTL ? "الحالة:" : "Status:"} <span className="font-black uppercase tracking-wider text-purple-600">{dx.status}</span>
-                                    </p>
-                                    {dx.result && (
-                                      <p className="text-[10px] bg-slate-900/5 dark:bg-black/20 p-1.5 mt-2 rounded border border-dotted border-slate-250 dark:border-slate-850 text-slate-600 dark:text-slate-300 font-semibold font-mono">
-                                        📄 Result: {dx.result}
-                                      </p>
-                                    )}
-                                  </div>
-                                  <span className="text-[9px] font-bold text-slate-400 uppercase font-mono">{dx.date || "TODAY"}</span>
-                                </div>
-                              ))}
-
-                              {patientDxs.length === 0 && (
-                                <div className="text-center py-6 text-slate-400 font-bold text-xs uppercase tracking-wider font-sans">
-                                  {isRTL ? "لا توجد تحاليل مسجلة لهذا المريض." : "No lab examinations on file."}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="pt-4 border-t border-slate-150 flex justify-end">
-                            <button
-                              onClick={() => setInspectingPatientId(null)}
-                              className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-950 rounded-xl text-xs font-black uppercase tracking-wider cursor-pointer"
-                            >
-                              {isRTL ? "إغلاق الملف" : "Dismiss Records"}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()
-                )}
+                {/* Integrations modal placeholder */}
               </div>
             )}
 
@@ -26632,12 +26172,22 @@ function App() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handlePrintInvoice(bill);
+                            handlePrintInvoice(bill, "A4");
                           }}
-                          className="p-2 text-gray-400 hover:text-emerald-600 hover:bg-slate-50 rounded-xl transition-all"
-                          title={isRTL ? "طباعة الفاتورة" : "Print Invoice"}
+                          className="px-2 py-1 flex items-center gap-1 text-[10px] font-bold text-gray-400 hover:text-emerald-600 hover:bg-slate-50 rounded-lg transition-all"
+                          title={isRTL ? "طباعة الفاتورة A4" : "Print A4 Invoice"}
                         >
-                          <Printer size={14} className="text-emerald-500" />
+                          <Printer size={14} className="text-emerald-500" /> A4
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePrintInvoice(bill, "80mm");
+                          }}
+                          className="px-2 py-1 flex items-center gap-1 text-[10px] font-bold text-gray-400 hover:text-blue-600 hover:bg-slate-50 rounded-lg transition-all"
+                          title={isRTL ? "طباعة الإيصال 80mm" : "Print 80mm Receipt"}
+                        >
+                          <Printer size={14} className="text-blue-500" /> 80mm
                         </button>
                         <button
                           onClick={(e) => {
@@ -26788,6 +26338,209 @@ function App() {
       </div>
     </motion.div>
   );
+
+  const renderEMRInspectorModal = () => {
+    if (!inspectingPatientId) return null;
+    const patient = patients.find(p => p.id === inspectingPatientId);
+    const patientRecords = medicalRecords.filter(r => r.patientId === inspectingPatientId);
+    const patientDxs = examinations.filter(e => e.patientId === inspectingPatientId);
+
+    return (
+      <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[60] flex items-center justify-center p-4">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.9, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          className="bg-white dark:bg-slate-900 max-w-2xl w-full rounded-[2.5rem] border border-slate-100 dark:border-slate-800 p-6 shadow-2xl space-y-6 max-h-[85vh] overflow-y-auto customize-scrollbar relative"
+        >
+          <div className="flex justify-between items-start">
+            <div>
+              <span className="text-[8px] bg-rose-500/10 text-rose-500 border border-rose-500/20 px-3 py-1 rounded-full text-xs font-black uppercase tracking-widest block w-fit mb-2">
+                {isRTL ? "الملف السريري الإلكتروني الموحد" : "Electronic Medical Record (EMR)"}
+              </span>
+              <h3 className="text-xl font-black text-slate-800 dark:text-slate-100 uppercase tracking-tight">
+                {patient?.name}
+              </h3>
+              <p className="text-xs text-slate-400 font-bold mt-1">
+                Dob: {patient?.dob} • Gender: {patient?.gender} • Blood Group: {patient?.bloodType}
+              </p>
+            </div>
+            <button
+              onClick={() => setInspectingPatientId(null)}
+              className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 hover:text-slate-800 cursor-pointer font-black"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Quick Clinical Summary */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="p-3 bg-rose-50/50 dark:bg-rose-950/10 rounded-xl text-center border border-rose-100/50 dark:border-rose-900/30">
+              <span className="text-[8px] font-black uppercase text-rose-500 tracking-wider block">{isRTL ? "الحساسية" : "Allergies"}</span>
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-350 mt-1 block truncate">
+                {patient?.allergies || (isRTL ? "لا توجد" : "None")}
+              </span>
+            </div>
+            <div className="p-3 bg-purple-50/50 dark:bg-purple-950/10 rounded-xl text-center border border-purple-100/50 dark:border-purple-900/30">
+              <span className="text-[8px] font-black uppercase text-purple-500 tracking-wider block">{isRTL ? "الزيارات والمذكرات" : "Clinics Notes"}</span>
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-350 mt-1 block">
+                {patientRecords.length} {isRTL ? "سجلات" : "Logs"}
+              </span>
+            </div>
+            <div className="p-3 bg-blue-50/50 dark:bg-blue-950/10 rounded-xl text-center border border-blue-100/50 dark:border-blue-900/30">
+              <span className="text-[8px] font-black uppercase text-blue-500 tracking-wider block">{isRTL ? "الفحوص والتحاليل" : "Lab Diagnostics"}</span>
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-350 mt-1 block font-bold">
+                {patientDxs.length} {isRTL ? "تحليل" : "Tests"}
+              </span>
+            </div>
+          </div>
+
+          {/* Visitation entries & prescriptions timeline (Patient Journey) */}
+          <div className="space-y-4">
+            <div className="flex justify-between items-center border-b border-dashed border-slate-150 dark:border-slate-800 pb-1.5">
+              <h4 className="text-xs font-black uppercase tracking-widest text-slate-400">
+                🚀 {isRTL ? "رحلة المريض الطبية (Patient Journey)" : "Patient Clinical Journey Timeline"}
+              </h4>
+              {hasPermission("add", "medicalRecord") && (
+                <button
+                  onClick={() => {
+                    const pid = inspectingPatientId;
+                    setInspectingPatientId(null);
+                    openModal("medicalRecord", { patientId: pid });
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 rounded-lg text-[10px] font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
+                >
+                  <span>+</span>
+                  {isRTL ? "اضافة مقابلة طبيب" : "Doctor Check-In"}
+                </button>
+              )}
+            </div>
+
+            <div className="space-y-3.5 max-h-[350px] overflow-y-auto pr-1 customize-scrollbar font-sans">
+              {patientRecords.map((rec, idxVal) => {
+                const visitDxs = patientDxs.filter(e => e.date === rec.visitDate || !e.date);
+                return (
+                <div key={rec.id || idxVal} className="relative pl-6 pb-6 border-l-2 border-indigo-100 dark:border-indigo-900 last:border-0 last:pb-0">
+                  <div className="absolute top-0 -left-[11px] w-5 h-5 rounded-full bg-indigo-500 border-4 border-white dark:border-slate-900 shadow-sm" />
+                  <div className="p-4 bg-slate-50 dark:bg-slate-950/40 border border-slate-100 dark:border-slate-850 rounded-2xl space-y-4">
+                    <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 pb-2 border-b border-slate-100 dark:border-slate-800">
+                      <span>📅 {isRTL ? "تاريخ الزيارة:" : "Visit Date:"} {rec.visitDate}</span>
+                      <span className="bg-indigo-100 dark:bg-indigo-900/50 text-indigo-800 dark:text-indigo-300 px-2 py-0.5 rounded uppercase font-mono tracking-wider text-[9px]">CODE: {rec.id}</span>
+                    </div>
+                    
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5 text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">
+                        <span>1️⃣</span> {isRTL ? "مقابلة الطبيب والتشخيص" : "Doctor Check-In & Diagnosis"}
+                      </div>
+                      <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 pl-6">
+                        {rec.diagnosis || (isRTL ? "فحص عام وتقييم مبدئي" : "General assessment and checkup")}
+                      </p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5 text-xs font-black text-purple-600 dark:text-purple-400 uppercase tracking-widest">
+                        <span>2️⃣</span> {isRTL ? "الفحوصات والأشعة" : "Diagnostics & Examinations"}
+                      </div>
+                      {visitDxs.length > 0 ? (
+                        <div className="pl-6 space-y-1">
+                          {visitDxs.map((dx, dIdx) => (
+                            <div key={dIdx} className="text-[11px] text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-md p-1.5">
+                              🔬 {dx.testName} - <span className="font-bold">{dx.status}</span>
+                              {dx.result && <span className="block mt-1 font-mono text-[10px] text-purple-700 dark:text-purple-400">Result: {dx.result}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-slate-400 italic pl-6">{isRTL ? "لم يتم طلب فحوصات" : "No examinations requested"}</p>
+                      )}
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5 text-xs font-black text-amber-600 dark:text-amber-500 uppercase tracking-widest">
+                        <span>3️⃣</span> {isRTL ? "تحديد العلاج وإرشادات الطبيب" : "Treatments & Doctor Instructions"}
+                      </div>
+                      <div className="pl-6 space-y-2">
+                        <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          {rec.treatment || (isRTL ? "متابعة الحالة وفق الإرشادات" : "Monitor symptoms as directed")}
+                        </p>
+                        <div className="bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/50 p-2 rounded-lg text-xs">
+                          <span className="font-bold text-amber-700 dark:text-amber-400 block mb-0.5">📌 {isRTL ? "إرشادات الطبيب:" : "Clinical Instructions:"}</span>
+                          <p className="text-amber-900/80 dark:text-amber-300/80 font-medium">{rec.doctorInstructions || rec.notes || (isRTL ? "الراحة والالتزام بمواعيد الدواء" : "Rest and medication adherence")}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5 text-xs font-black text-emerald-600 dark:text-emerald-500 uppercase tracking-widest">
+                        <span>4️⃣</span> {isRTL ? "صرف الدواء من الصيدلية" : "Pharmacy Dispensing"}
+                      </div>
+                      <div className="pl-6">
+                        {rec.prescription ? (
+                          <div className="p-2 bg-emerald-50/80 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/50 rounded-lg text-xs">
+                            <span className="font-bold text-emerald-700 dark:text-emerald-400 block mb-0.5">💊 {isRTL ? "الأدوية الموصوفة:" : "Prescribed Medication:"}</span>
+                            <p className="font-semibold text-slate-700 dark:text-emerald-100/70">{rec.prescription}</p>
+                          </div>
+                        ) : (
+                          <p className="text-[10px] text-slate-400 italic">{isRTL ? "لم يتم وصف أدوية" : "No active prescriptions"}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                );
+              })}
+
+              {patientRecords.length === 0 && (
+                <div className="text-center py-8 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 text-slate-400 font-bold text-xs uppercase tracking-wider">
+                  {isRTL ? "لا توجد زيارات مسجلة لهذا المريض لبدء رحلة العلاج." : "No clinical visits on file to display patient journey."}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Diagnostics & Examinations */}
+          <div className="space-y-4 pt-2">
+            <h4 className="text-xs font-black uppercase tracking-widest text-slate-400 border-b border-dashed border-slate-150 dark:border-slate-800 pb-1.5 font-sans">
+              🧪 {isRTL ? "نتائج الفحوص المخبرية والأشعة" : "Active Diagnostics & Radiography Reports"}
+            </h4>
+
+            <div className="space-y-3 max-h-[200px] overflow-y-auto pr-1">
+              {patientDxs.map((dx, idxVal) => (
+                <div key={dx.id || idxVal} className="p-3 bg-purple-500/5 dark:bg-purple-500/10 border border-purple-500/10 rounded-xl flex justify-between items-start text-xs">
+                  <div>
+                    <span className="font-extrabold text-slate-800 dark:text-slate-200 block">{dx.testName}</span>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                      {dx.priority} • {isRTL ? "الحالة:" : "Status:"} <span className="font-black uppercase tracking-wider text-purple-600">{dx.status}</span>
+                    </p>
+                    {dx.result && (
+                      <p className="text-[10px] bg-slate-900/5 dark:bg-black/20 p-1.5 mt-2 rounded border border-dotted border-slate-250 dark:border-slate-850 text-slate-600 dark:text-slate-300 font-semibold font-mono">
+                        📄 Result: {dx.result}
+                      </p>
+                    )}
+                  </div>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase font-mono">{dx.date || "TODAY"}</span>
+                </div>
+              ))}
+
+              {patientDxs.length === 0 && (
+                <div className="text-center py-6 text-slate-400 font-bold text-xs uppercase tracking-wider font-sans">
+                  {isRTL ? "لا توجد تحاليل مسجلة لهذا المريض." : "No lab examinations on file."}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-slate-150 dark:border-slate-800 flex justify-end">
+            <button
+              onClick={() => setInspectingPatientId(null)}
+              className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-950 rounded-xl text-xs font-black uppercase tracking-wider cursor-pointer"
+            >
+              {isRTL ? "إغلاق الملف" : "Dismiss Records"}
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    );
+  };
 
   const renderModal = () => {
     if (!isModalOpen) return null;
@@ -27721,7 +27474,7 @@ function App() {
                               }
                               items={combinedManufacturers}
                               selectedId={editingItem?.manufacturer_id}
-                              onSelect={(item) => {}}
+                              onSelect={(item) => setEditingItem((prev: any) => ({ ...prev, manufacturer_id: item.id }))}
                               type="manufacturer"
                               isRTL={isRTL}
                               allowCustom
@@ -27797,7 +27550,7 @@ function App() {
                               }
                               items={departments}
                               selectedId={editingItem?.department_id}
-                              onSelect={() => {}}
+                              onSelect={(item) => setEditingItem((prev: any) => ({ ...prev, department_id: item.id }))}
                               type="department"
                               isRTL={isRTL}
                               allowCustom
@@ -28007,9 +27760,7 @@ function App() {
                           placeholder={t.selectAsset}
                           items={assets}
                           selectedId={editingItem?.assetId}
-                          onSelect={(item) => {
-                            // No manual state needed, form data will handle it
-                          }}
+                          onSelect={(item) => setEditingItem((prev: any) => ({ ...prev, assetId: item.id }))}
                           type="asset"
                           isRTL={isRTL}
                           required
@@ -28149,7 +27900,7 @@ function App() {
                           placeholder={t.selectAsset}
                           items={assets}
                           selectedId={editingItem?.assetId}
-                          onSelect={() => {}}
+                          onSelect={(item) => setEditingItem((prev: any) => ({ ...prev, assetId: item.id }))}
                           type="asset"
                           isRTL={isRTL}
                           required
@@ -28872,7 +28623,7 @@ function App() {
                           placeholder={isRTL ? "اختر المريض" : "Select Patient"}
                           items={patients}
                           selectedId={editingItem?.patientId}
-                          onSelect={() => {}}
+                          onSelect={(p) => setEditingItem((prev: any) => ({ ...prev, patientId: p.id }))}
                           type="patient"
                           isRTL={isRTL}
                           required
@@ -28887,7 +28638,7 @@ function App() {
                               u.role.toLowerCase().includes("doctor"),
                           )}
                           selectedId={editingItem?.doctorId || currentUser.id}
-                          onSelect={() => {}}
+                          onSelect={(d) => setEditingItem((prev: any) => ({ ...prev, doctorId: d.id }))}
                           type="doctor"
                           isRTL={isRTL}
                           required
@@ -29714,7 +29465,10 @@ function App() {
                           selectedId={
                             editingItem?.patientId || selectedPatient?.id
                           }
-                          onSelect={(p) => setSelectedPatient(p)}
+                          onSelect={(p) => {
+                            setSelectedPatient(p);
+                            setEditingItem((prev: any) => ({ ...prev, patientId: p.id }));
+                          }}
                           type="patient"
                           isRTL={isRTL}
                           required
@@ -29733,7 +29487,7 @@ function App() {
                                 u.role.toLowerCase().includes("doctor"),
                             )}
                             selectedId={editingItem?.doctorId || currentUser.id}
-                            onSelect={() => {}}
+                            onSelect={(d) => setEditingItem((prev: any) => ({ ...prev, doctorId: d.id }))}
                             type="doctor"
                             isRTL={isRTL}
                             required
@@ -30295,7 +30049,7 @@ function App() {
                               }
                               items={combinedManufacturers}
                               selectedId={editingItem?.manufacturer_id}
-                              onSelect={() => {}}
+                              onSelect={(m) => setEditingItem((prev: any) => ({ ...prev, manufacturer_id: m.id }))}
                               type="manufacturer"
                               isRTL={isRTL}
                               allowCustom
@@ -31533,7 +31287,7 @@ function App() {
                                 }
                                 items={patients}
                                 selectedId={editingItem?.patientId}
-                                onSelect={() => {}}
+                                onSelect={(p) => setEditingItem((prev: any) => ({ ...prev, patientId: p.id }))}
                                 type="patient"
                                 isRTL={isRTL}
                                 required
@@ -35445,12 +35199,18 @@ function App() {
 
               <AnimatePresence>
                 {showNotifications && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 15, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 15, scale: 0.95 }}
-                    className={`absolute right-0 top-12 w-80 bg-white rounded-[2rem] shadow-2xl border border-gray-100/50 p-4 z-50 overflow-hidden flex flex-col ${isRTL ? "text-right" : "text-left"}`}
-                  >
+                  <>
+                    <div 
+                      className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40"
+                      onClick={() => setShowNotifications(false)}
+                    />
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95, x: "-50%", y: "-50%" }}
+                      animate={{ opacity: 1, scale: 1, x: "-50%", y: "-50%" }}
+                      exit={{ opacity: 0, scale: 0.95, x: "-50%", y: "-50%" }}
+                      style={{ left: "50%", top: "50%" }}
+                      className={`fixed w-[90%] max-w-sm bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl border border-gray-100/50 dark:border-slate-800 p-6 z-50 overflow-hidden flex flex-col ${isRTL ? "text-right" : "text-left"}`}
+                    >
                     <div className="flex justify-between items-center mb-4">
                       <h4 className="font-black text-[11px] text-gray-800 uppercase tracking-tight">
                         {isRTL ? "تنبيهات النظام الذكية" : "System Alerts"}
@@ -35573,6 +35333,7 @@ function App() {
                       </button>
                     </div>
                   </motion.div>
+                  </>
                 )}
               </AnimatePresence>
             </div>
@@ -35801,8 +35562,6 @@ function App() {
                           selectedStationId={selectedStationId}
                           setSelectedStationId={setSelectedStationId}
                           setIsVisitModalOpen={setIsVisitModalOpen}
-                          resolveSosAlert={resolveSosAlert}
-                          sosAlertsList={sosAlertsList}
                           assets={assets}
                           patients={patients}
                           apiFetch={apiFetch}
@@ -35887,6 +35646,7 @@ function App() {
       {renderQrScannerModal()}
       {renderQrPrintModal()}
       {renderBiometricOverlay()}
+      {renderEMRInspectorModal()}
     </div>
   );
 };

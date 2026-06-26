@@ -42,15 +42,14 @@ const mailTransporter = nodemailer.createTransport({
 });
 
 const sendNodeMail = async (to: string, subject: string, html: string) => {
-  if (!process.env.SMTP_HOST || process.env.SMTP_HOST === "smtp.example.com") {
-    console.warn("SMTP_HOST is not configured. Email will not be sent.");
-    return { success: false, error: "SMTP not configured" };
+  if (!process.env.SMTP_HOST) {
+    console.warn("SMTP_HOST is not configured. Email might fail.");
   }
 
   try {
     const info = await mailTransporter.sendMail({
       from:
-        process.env.SMTP_FROM_EMAIL || '"JAKEL HIMS" <noreply@hims-pro.com>',
+        process.env.SMTP_FROM_EMAIL || '"JAKEL HIMS" <Notifications@hims-482332599885.us-west1.run.app>',
       to,
       subject,
       html,
@@ -141,21 +140,35 @@ async function downloadDbFromFirestore() {
     console.log("Checking Firebase for Global Sync DB...");
     const c0 = await getDoc(doc(firestoreDb, "dbBackup", "chunk_0"));
     if (c0.exists()) {
-      lastLocalTimestamp = c0.data().timestamp;
-      let base64 = c0.data().data;
-      const isCompressed = c0.data().compressed === true;
-      const totalChunks = c0.data().totalChunks;
+      const { timestamp, data: firstChunk, totalChunks, compressed } = c0.data();
+      lastLocalTimestamp = timestamp;
+      let base64 = firstChunk;
+      const isCompressed = compressed === true;
+      
       for (let i = 1; i < totalChunks; i++) {
         const c = await getDoc(doc(firestoreDb, "dbBackup", `chunk_${i}`));
-        if (c.exists()) base64 += c.data().data;
+        if (c.exists()) {
+          base64 += c.data().data;
+        } else {
+          console.error(`CRITICAL: Missing chunk_${i} during DB sync!`);
+          return false;
+        }
       }
 
       const buffer = Buffer.from(base64, "base64");
       const finalData = isCompressed ? zlib.gunzipSync(buffer) : buffer;
 
+      // Verify SQLite header (The first 16 bytes must match "SQLite format 3\0")
+      const sqliteHeader = "SQLite format 3\0";
+      const headerBuffer = finalData.slice(0, 16);
+      if (headerBuffer.toString("binary", 0, 16) !== sqliteHeader) {
+        console.error("CRITICAL: Downloaded DB backup has an invalid SQLite header!");
+        return false;
+      }
+
       fs.writeFileSync(DB_PATH, finalData);
       console.log(
-        `Successfully synced DB from Firebase (Compressed: ${isCompressed})`,
+        `Successfully synced DB from Firebase (Compressed: ${isCompressed}, Size: ${finalData.length} bytes)`,
       );
       return true;
     }
@@ -171,19 +184,26 @@ async function uploadDbToFirestore() {
   if (syncTimeout) clearTimeout(syncTimeout);
   syncTimeout = setTimeout(async () => {
     try {
+      if (!fs.existsSync(DB_PATH)) return;
       const stats = fs.statSync(DB_PATH);
       const sizeInMB = stats.size / (1024 * 1024);
 
-      // Safety threshold of 25MB to protect database sync under heavy multi-million user scenarios
       if (sizeInMB > 25) {
         console.warn(
-          `[SCALE ALERT] Database size is ${sizeInMB.toFixed(2)} MB, which exceeds the 25MB standard memory sync buffer. Skipping Firestore chunk-backup to prevent bottlenecks. Standard scaling architectures should use external Cloud SQL (PostgreSQL) databases.`,
+          `[SCALE ALERT] Database size is ${sizeInMB.toFixed(2)} MB, exceeding 25MB threshold.`,
         );
         return;
       }
 
       const data = fs.readFileSync(DB_PATH);
-      // Gzip compress the DB representation
+      
+      // Verify local DB integrity before uploading
+      const sqliteHeader = "SQLite format 3\0";
+      if (data.slice(0, 16).toString("binary", 0, 16) !== sqliteHeader) {
+        console.warn("Skipping DB upload: Local database file has invalid header (possibly mid-transaction or corrupted).");
+        return;
+      }
+
       const compressed = zlib.gzipSync(data, { level: 9 });
       const base64 = compressed.toString("base64");
 
@@ -192,9 +212,19 @@ async function uploadDbToFirestore() {
       const timestamp = Date.now();
       lastLocalTimestamp = timestamp;
 
-      for (let i = 0; i < chunks; i++) {
+      // Write non-zero chunks first
+      for (let i = 1; i < chunks; i++) {
         await setDoc(doc(firestoreDb, "dbBackup", `chunk_${i}`), {
           data: base64.substring(i * chunkSize, (i + 1) * chunkSize),
+          totalChunks: chunks,
+          timestamp,
+          compressed: true,
+        });
+      }
+      // Write chunk_0 last so onSnapshot listeners on other containers see a fully written set of chunks
+      if (chunks > 0) {
+        await setDoc(doc(firestoreDb, "dbBackup", "chunk_0"), {
+          data: base64.substring(0, chunkSize),
           totalChunks: chunks,
           timestamp,
           compressed: true,
@@ -318,20 +348,54 @@ function emitDataChanged() {
 
 const wrapDb = (database: any) => {
   const _run = database.run.bind(database);
-  database.run = async function (sql: any, params?: any) {
-    const result = await _run(sql, params);
+  database.run = async function (...args: any[]) {
+    const result = await _run(...args);
     uploadDbToFirestore();
     emitDataChanged();
     return result;
   };
   const _exec = database.exec.bind(database);
-  database.exec = async function (sql: any) {
-    const result = await _exec(sql);
+  database.exec = async function (...args: any[]) {
+    const result = await _exec(...args);
     uploadDbToFirestore();
     emitDataChanged();
     return result;
   };
+  const _prepare = database.prepare.bind(database);
+  database.prepare = async function (...args: any[]) {
+    const stmt = await _prepare(...args);
+    if (stmt) {
+      const _stmtRun = stmt.run.bind(stmt);
+      stmt.run = async function (...stmtArgs: any[]) {
+        const res = await _stmtRun(...stmtArgs);
+        uploadDbToFirestore();
+        emitDataChanged();
+        return res;
+      };
+    }
+    return stmt;
+  };
 };
+
+async function openDatabase(path: string) {
+  try {
+    return await open({
+      filename: path,
+      driver: sqlite3.Database,
+    });
+  } catch (err: any) {
+    if (err.message.includes("unsupported file format") || err.message.includes("SQLITE_CORRUPT")) {
+      console.error(`CRITICAL: Database file at ${path} is corrupted. Attempting fresh start...`);
+      const backupPath = `${path}.corrupted.${Date.now()}`;
+      if (fs.existsSync(path)) fs.renameSync(path, backupPath);
+      return await open({
+        filename: path,
+        driver: sqlite3.Database,
+      });
+    }
+    throw err;
+  }
+}
 
 async function initDb() {
   console.log("Initializing database...");
@@ -344,10 +408,7 @@ async function initDb() {
   await downloadDbFromFirestore();
 
   console.log("Opening database at:", DB_PATH);
-  db = await open({
-    filename: DB_PATH,
-    driver: sqlite3.Database,
-  });
+  db = await openDatabase(DB_PATH);
 
   // Optimize SQLite parameters for high-concurrency scaling (Millions of Users)
   try {
@@ -367,7 +428,7 @@ async function initDb() {
         isRestoringDb = true;
         await db.close();
         await downloadDbFromFirestore();
-        db = await open({ filename: DB_PATH, driver: sqlite3.Database });
+        db = await openDatabase(DB_PATH);
         try {
           await db.exec(`PRAGMA journal_mode = WAL;`);
           await db.exec(`PRAGMA synchronous = NORMAL;`);
@@ -904,22 +965,6 @@ async function runMigrationsAndSeed(targetDb: Database) {
     `);
   } catch (e) {
     console.warn("Failed to create telehealth_messages", e);
-  }
-
-  try {
-    await db.exec(`
-      CREATE TABLE IF NOT EXISTS sos_alerts (
-        id TEXT PRIMARY KEY,
-        patient_id TEXT,
-        patient_name TEXT,
-        message TEXT,
-        location TEXT,
-        timestamp TEXT,
-        status TEXT DEFAULT 'Active'
-      );
-    `);
-  } catch (e) {
-    console.warn("Failed to create sos_alerts", e);
   }
 
   console.log("Running migrations...");
@@ -2245,52 +2290,46 @@ async function startServer() {
 
   const app = express();
   app.set("trust proxy", 1);
-  const server = http.createServer(app);
-  io = new SocketIOServer(server, { cors: { origin: "*" } });
-
+  
+  // 1. GLOBAL MIDDLEWARES
+  app.use((req, res, next) => {
+    console.log(`[REQUEST] ${req.method} ${req.url}`);
+    next();
+  });
   app.use(express.json({ limit: "10mb" }));
   app.use(cors());
   app.use(
     helmet({
-      contentSecurityPolicy: false, // keep custom CSP
+      contentSecurityPolicy: false,
       crossOriginEmbedderPolicy: false,
-      crossOriginOpenerPolicy: false, // CRITICAL: allows Google Sign-In popup window.opener to work correctly!
+      crossOriginOpenerPolicy: false,
     }),
   );
 
-  // Create an API rate limiter
+  // 2. RATE LIMITING
   const apiLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 1000, // Limit each IP to 1000 requests per `window` (here, per 15 minutes)
-    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-    message: { error: "Too many requests, please try again later." },
-  });
-
-  // Apply the rate limiting middleware to API calls only
-  app.use("/api/", apiLimiter);
-
-  // Strict rate limiter for authentication routes
-  const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 20, // Limit each IP to 20 requests per `window` for auth
+    windowMs: 15 * 60 * 1000,
+    max: 1000,
     standardHeaders: true,
     legacyHeaders: false,
-    message: {
-      error: "Too many authentication attempts, please try again later.",
-    },
+    message: { error: "Too many requests, please try again later." },
+  });
+  app.use("/api/", apiLimiter);
+
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many authentication attempts, please try again later." },
   });
   app.use("/api/auth/", authLimiter);
 
-  // Security Headers for Google Protection Standards (Zualnoon Developer)
+  // 3. SECURITY HEADERS
   app.use((req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("X-XSS-Protection", "1; mode=block");
-    res.setHeader(
-      "Strict-Transport-Security",
-      "max-age=31536000; includeSubDomains",
-    );
-    // Basic CSP that allows what we need, including embedding inside AI Studio
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
     res.setHeader(
       "Content-Security-Policy",
       "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https: wss:; object-src 'none'; frame-ancestors 'self' https://ai.studio https://*.google.com https://*.run.app https://*.gitpod.io http://localhost:*",
@@ -2298,6 +2337,81 @@ async function startServer() {
     res.setHeader("Referrer-Policy", "no-referrer-when-downgrade");
     next();
   });
+
+  // 4. AUTH MIDDLEWARE
+  const authenticateToken = (req: any, res: any, next: any) => {
+    const authHeader = req.headers["authorization"];
+    const token = authHeader && authHeader.split(" ")[1];
+
+    if (!token) return res.status(401).json({ error: "Access denied. No token provided." });
+
+    jwt.verify(token, SECRET_KEY, (err: any, decoded: any) => {
+      if (err) return res.status(403).json({ error: "Invalid or expired token." });
+      req.user = decoded;
+      req.userId = decoded.userId || decoded.id;
+      req.role = decoded.role;
+      req.externalLabId = decoded.externalLabId;
+      req.externalPharmacyId = decoded.externalPharmacyId;
+
+      if (decoded.email && decoded.email.toLowerCase() === "zaelnoon2000@gmail.com") {
+        req.role = "Super Admin";
+        if (req.user) req.user.role = "Super Admin";
+      }
+
+      const headerHospitalId = req.headers["x-hospital-id"] as string;
+      const assignedHospitals = decoded.assignedHospitals ? decoded.assignedHospitals.split(",") : [];
+
+      if (req.role === "Super Admin" && headerHospitalId) {
+        req.hospitalId = headerHospitalId;
+      } else if (headerHospitalId && assignedHospitals.includes(headerHospitalId)) {
+        req.hospitalId = headerHospitalId;
+      } else {
+        req.hospitalId = decoded.hospitalId;
+      }
+      next();
+    });
+  };
+
+  // 5. API ROUTES
+  app.route("/api/telehealth/messages")
+    .get(authenticateToken, async (req: any, res) => {
+      try {
+        if (!db) return res.status(503).json({ error: "Database not ready" });
+        const { role, userId } = req;
+        let query = "SELECT * FROM telehealth_messages WHERE sender_id = ? OR receiver_id = ? ORDER BY timestamp ASC";
+        let params = [userId || null, userId || null];
+        if (role === "Super Admin") {
+          query = "SELECT * FROM telehealth_messages ORDER BY timestamp ASC";
+          params = [];
+        }
+        const rows = await db.all(query, params);
+        res.json(rows || []);
+      } catch (err) {
+        console.error("Telehealth Fetch Error:", err);
+        res.status(500).json({ error: "Failed to fetch messages" });
+      }
+    })
+    .post(authenticateToken, async (req: any, res) => {
+      try {
+        if (!db) return res.status(503).json({ error: "Database not ready" });
+        const { userId, role } = req;
+        const { receiver_id, receiver_name, message, sender_name, sender_role } = req.body;
+        if (!receiver_id || !message) return res.status(400).json({ error: "Receiver ID and message required" });
+        const id = "msg-" + Date.now() + "-" + Math.random().toString(36).substring(2, 7);
+        const timestamp = new Date().toISOString();
+        await db.run(
+          `INSERT INTO telehealth_messages (id, sender_id, sender_name, sender_role, receiver_id, receiver_name, message, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [id, userId || null, sender_name || "Sender", sender_role || role || "User", receiver_id, receiver_name || "Receiver", message, timestamp]
+        );
+        res.status(201).json({ id, sender_id: userId, sender_name, sender_role, receiver_id, receiver_name, message, timestamp });
+      } catch (err) {
+        console.error("Telehealth Send Error:", err);
+        res.status(500).json({ error: "Failed to send message" });
+      }
+    });
+
+  const server = http.createServer(app);
+  io = new SocketIOServer(server, { cors: { origin: "*" } });
 
   // API routes go here FIRST
   app.get("/api/health", (req, res) => {
@@ -2335,55 +2449,6 @@ async function startServer() {
   }
 
   // Authentication Middleware
-  const authenticateToken = (req: any, res: any, next: any) => {
-    const authHeader = req.headers["authorization"];
-    const token = authHeader && authHeader.split(" ")[1];
-
-    if (!token)
-      return res
-        .status(401)
-        .json({ error: "Access denied. No token provided." });
-
-    jwt.verify(token, SECRET_KEY, (err: any, decoded: any) => {
-      if (err)
-        return res.status(403).json({ error: "Invalid or expired token." });
-      req.user = decoded;
-      req.userId = decoded.userId || decoded.id;
-      req.role = decoded.role;
-      req.externalLabId = decoded.externalLabId;
-      req.externalPharmacyId = decoded.externalPharmacyId;
-
-      // Ensure that if the session matches the system emergency super admin, they are fully authorized
-      if (
-        decoded.email &&
-        decoded.email.toLowerCase() === "zaelnoon2000@gmail.com"
-      ) {
-        req.role = "Super Admin";
-        if (req.user) {
-          req.user.role = "Super Admin";
-        }
-      }
-
-      // Context switching logic
-      const headerHospitalId = req.headers["x-hospital-id"] as string;
-      const assignedHospitals = decoded.assignedHospitals
-        ? decoded.assignedHospitals.split(",")
-        : [];
-
-      if (req.role === "Super Admin" && headerHospitalId) {
-        req.hospitalId = headerHospitalId;
-      } else if (
-        headerHospitalId &&
-        assignedHospitals.includes(headerHospitalId)
-      ) {
-        req.hospitalId = headerHospitalId;
-      } else {
-        req.hospitalId = decoded.hospitalId;
-      }
-
-      next();
-    });
-  };
 
   app.post(
     "/api/auth/register-hospital",
@@ -4632,14 +4697,16 @@ async function startServer() {
       const id = "nsd_" + Math.random().toString(36).substr(2, 9);
       const hId = (req as any).hospitalId;
 
-      const existing = await db.get(
-        "SELECT id FROM nurse_station_devices WHERE asset_id = ? AND hospital_id = ?",
-        [asset_id, hId],
-      );
-      if (existing) {
-        return res
-          .status(400)
-          .json({ error: "Device is already linked to another bed/patient" });
+      if (asset_id) {
+        const existing = await db.get(
+          "SELECT id FROM nurse_station_devices WHERE asset_id = ? AND hospital_id = ?",
+          [asset_id, hId],
+        );
+        if (existing) {
+          return res
+            .status(400)
+            .json({ error: "Device is already linked to another bed/patient" });
+        }
       }
 
       await db.run(
@@ -4648,7 +4715,7 @@ async function startServer() {
           id,
           hId,
           station_id,
-          asset_id,
+          asset_id || null,
           patient_id || null,
           bed_number || "Bed " + Math.floor(Math.random() * 200 + 1),
           vitals_pulse || 75,
@@ -4659,10 +4726,13 @@ async function startServer() {
           new Date().toISOString(),
         ],
       );
-      await db.run(
-        'UPDATE assets SET status = "In Use" WHERE id = ? AND hospital_id = ?',
-        [asset_id, hId],
-      );
+
+      if (asset_id) {
+        await db.run(
+          'UPDATE assets SET status = "In Use" WHERE id = ? AND hospital_id = ?',
+          [asset_id, hId],
+        );
+      }
 
       io.emit("dataChanged");
       res.json({ success: true, id });
@@ -5684,174 +5754,7 @@ async function startServer() {
     }
   });
 
-  // Telehealth Messages API
-  app.get(
-    "/api/telehealth/messages",
-    authenticateToken,
-    async (req: any, res) => {
-      try {
-        const { role, userId } = req;
-
-        // Select messages where the current user is either sender or receiver
-        let query =
-          "SELECT * FROM telehealth_messages WHERE sender_id = ? OR receiver_id = ? ORDER BY timestamp ASC";
-        let params = [userId || null, userId || null];
-
-        if (role === "Super Admin") {
-          query = "SELECT * FROM telehealth_messages ORDER BY timestamp ASC";
-          params = [];
-        }
-
-        const rows = await db.all(query, params);
-        res.json(rows);
-      } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: "Failed to fetch messages" });
-      }
-    },
-  );
-
-  app.post(
-    "/api/telehealth/messages",
-    authenticateToken,
-    async (req: any, res) => {
-      try {
-        const { userId, role } = req;
-        const {
-          receiver_id,
-          receiver_name,
-          message,
-          sender_name,
-          sender_role,
-        } = req.body;
-
-        if (!receiver_id || !message) {
-          return res
-            .status(400)
-            .json({ error: "Receiver ID and message content are required" });
-        }
-
-        const id =
-          "msg-" +
-          Date.now() +
-          "-" +
-          Math.random().toString(36).substring(2, 7);
-        const timestamp = new Date().toISOString();
-
-        await db.run(
-          `INSERT INTO telehealth_messages (id, sender_id, sender_name, sender_role, receiver_id, receiver_name, message, timestamp)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            id,
-            userId || null,
-            sender_name || "Sender",
-            sender_role || role || "User",
-            receiver_id,
-            receiver_name || "Receiver",
-            message,
-            timestamp,
-          ],
-        );
-
-        res
-          .status(201)
-          .json({
-            id,
-            sender_id: userId,
-            sender_name,
-            sender_role,
-            receiver_id,
-            receiver_name,
-            message,
-            timestamp,
-          });
-      } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: "Failed to send message" });
-      }
-    },
-  );
-
-  // SOS Alerts API
-  app.get("/api/sos-alerts", authenticateToken, async (req: any, res) => {
-    try {
-      const { role, userId } = req;
-      let query = "SELECT * FROM sos_alerts ORDER BY timestamp DESC";
-      let params: any[] = [];
-
-      if (role === "Patient") {
-        query =
-          "SELECT * FROM sos_alerts WHERE patient_id = ? ORDER BY timestamp DESC";
-        params = [userId || null];
-      }
-
-      const rows = await db.all(query, params);
-      res.json(rows);
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: "Failed to fetch SOS alerts" });
-    }
-  });
-
-  app.post("/api/sos-alerts", authenticateToken, async (req: any, res) => {
-    try {
-      const { userId } = req;
-      const { patient_name, message, location } = req.body;
-
-      const id = "sos-" + Date.now();
-      const timestamp = new Date().toISOString();
-      const status = "Active";
-
-      await db.run(
-        `INSERT INTO sos_alerts (id, patient_id, patient_name, message, location, timestamp, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [
-          id,
-          userId || null,
-          patient_name || "Patient",
-          message || "Emergency Alert",
-          location || "Unspecified",
-          timestamp,
-          status,
-        ],
-      );
-
-      res
-        .status(201)
-        .json({
-          id,
-          patient_id: userId,
-          patient_name,
-          message,
-          location,
-          timestamp,
-          status,
-        });
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: "Failed to create SOS alert" });
-    }
-  });
-
-  app.put(
-    "/api/sos-alerts/:id/resolve",
-    authenticateToken,
-    async (req: any, res) => {
-      try {
-        const { id } = req.params;
-        await db.run("UPDATE sos_alerts SET status = ? WHERE id = ?", [
-          "Resolved",
-          id,
-        ]);
-        res.json({ success: true, id, status: "Resolved" });
-      } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: "Failed to resolve SOS alert" });
-      }
-    },
-  );
-
-  // Complaints and Suggestions API
+  // Feedback API
   app.get("/api/feedback", authenticateToken, async (req: any, res) => {
     try {
       const { role, userId, hospitalId } = req;
@@ -8852,6 +8755,11 @@ async function startServer() {
     `);
   });
 
+  // API 404 Handler - Prevents falling through to Vite/Static for missing API routes
+  app.all("/api/*", (req, res) => {
+    res.status(404).json({ error: `API route ${req.method} ${req.path} not found` });
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const viteModule = await Function('return import("vite")')();
@@ -8864,6 +8772,10 @@ async function startServer() {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
+      // If the request starts with /api/, return a 404 JSON instead of index.html
+      if (req.path.startsWith("/api/")) {
+        return res.status(404).json({ error: "API route not found" });
+      }
       res.sendFile(path.join(distPath, "index.html"));
     });
   }

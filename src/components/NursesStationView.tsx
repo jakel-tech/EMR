@@ -12,8 +12,6 @@ interface NursesStationViewProps {
   selectedStationId: string;
   setSelectedStationId: (id: string) => void;
   setIsVisitModalOpen: (open: boolean) => void;
-  resolveSosAlert: (id: string) => Promise<void>;
-  sosAlertsList: any[];
   assets: Asset[];
   patients: Patient[];
   apiFetch: any;
@@ -29,8 +27,6 @@ const NursesStationView: React.FC<NursesStationViewProps> = ({
   selectedStationId,
   setSelectedStationId,
   setIsVisitModalOpen,
-  resolveSosAlert,
-  sosAlertsList,
   assets,
   patients,
   apiFetch,
@@ -42,6 +38,11 @@ const NursesStationView: React.FC<NursesStationViewProps> = ({
   const [isManualVitalsModalOpen, setIsManualVitalsModalOpen] = useState(false);
   const [editingStation, setEditingStation] = useState<any | null>(null);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+
+  // Discharge / Evacuation modal states
+  const [dischargeDeviceId, setDischargeDeviceId] = useState<string | null>(null);
+  const [dischargeReason, setDischargeReason] = useState("");
+  const [customDischargeNotes, setCustomDischargeNotes] = useState("");
 
   // Manual Vitals form state
   const [manualVitalsPulse, setManualVitalsPulse] = useState(72);
@@ -130,14 +131,10 @@ const NursesStationView: React.FC<NursesStationViewProps> = ({
 
   const handleLinkDevice = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!linkAssetId) {
-      toast.error(isRTL ? "الرجاء اختيار الجهاز الطبي" : "Please select a medical device");
-      return;
-    }
     try {
       const body = {
         station_id: selectedStationId,
-        asset_id: linkAssetId,
+        asset_id: linkAssetId || null,
         patient_id: linkPatientId || null,
         bed_number: linkBedNumber || `Bed ${Math.floor(Math.random() * 200 + 1)}`,
         vitals_pulse: Number(linkVitalsPulse),
@@ -168,23 +165,37 @@ const NursesStationView: React.FC<NursesStationViewProps> = ({
     }
   };
 
-  const handleUnlinkDevice = async (id: string) => {
-    const reason = window.prompt(isRTL ? "سبب الإخلاء / إلغاء الربط:" : "Reason for evacuation / unlinking:", isRTL ? "تحسن الحالة" : "Patient condition improved");
-    if (reason === null) return; // Cancelled
+  const handleUnlinkDevice = (id: string) => {
+    setDischargeDeviceId(id);
+    setDischargeReason(isRTL ? "شفاء وتحسن الحالة" : "Condition Improved / Discharged");
+    setCustomDischargeNotes("");
+  };
+
+  const submitDischarge = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!dischargeDeviceId) return;
     
+    const finalReason = customDischargeNotes.trim() 
+      ? `${dischargeReason} - ${customDischargeNotes.trim()}`
+      : dischargeReason;
+
     try {
-      const res = await apiFetch(`/api/nurses-stations-devices/${id}/unlink`, { 
+      const res = await apiFetch(`/api/nurses-stations-devices/${dischargeDeviceId}/unlink`, { 
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason })
+        body: JSON.stringify({ reason: finalReason })
       });
       if (res.ok) {
-        toast.success(isRTL ? "تم فصل وإخلاء الجهاز بنجاح" : "Device disconnected and available.");
+        toast.success(isRTL ? "تم فصل وإخلاء المريض والسرير بنجاح" : "Device disconnected and available.");
+        setDischargeDeviceId(null);
         fetchNursesStationsAndDevices();
         fetchData(true);
+      } else {
+        toast.error(isRTL ? "فشل إخلاء المريض" : "Failed to discharge patient");
       }
     } catch (err) {
       console.error(err);
+      toast.error("Error discharging patient");
     }
   };
 
@@ -271,7 +282,6 @@ const NursesStationView: React.FC<NursesStationViewProps> = ({
           <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
             {nursesStations.map((st) => {
               const devCount = stationDevices.filter((d) => d.station_id === st.id).length;
-              const alertCount = sosAlertsList.filter((a) => a.location === st.location && a.status === "Active").length;
               const isActive = selectedStationId === st.id;
 
               return (
@@ -297,11 +307,6 @@ const NursesStationView: React.FC<NursesStationViewProps> = ({
                       }`}>
                         {devCount} {isRTL ? "أجهزة" : "devs"}
                       </span>
-                      {alertCount > 0 && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-red-500 text-white animate-pulse">
-                          🚨 {alertCount}
-                        </span>
-                      )}
                     </div>
                   </div>
 
@@ -380,61 +385,13 @@ const NursesStationView: React.FC<NursesStationViewProps> = ({
                 </div>
               </div>
 
-              {/* Patient SOS Window */}
-              <div className="space-y-4 bg-white p-6 rounded-[2.5rem] border border-red-100 shadow-sm relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-red-50 rounded-full blur-3xl -z-10 opacity-50" />
-                
-                <h3 className="text-sm font-black uppercase text-red-600 flex items-center gap-2">
-                  <ShieldAlert size={18} className={sosAlertsList.some(alert => alert.status === 'Active') ? "animate-bounce text-red-500" : "text-red-300"} />
-                  {isRTL ? "نافذة استغاثة المرضى (SOS)" : "Patient SOS Emergency Window"}
-                </h3>
-
-                {sosAlertsList.some(alert => alert.status === 'Active') ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {sosAlertsList.filter(alert => alert.status === 'Active').map(alert => (
-                      <div key={alert.id} className="bg-red-50 border-2 border-red-200 rounded-3xl p-5 shadow-lg shadow-red-100 flex flex-col justify-between animate-pulse relative z-10">
-                        <div>
-                          <div className="flex justify-between items-start mb-2">
-                            <h4 className="font-black text-red-700 text-sm">{alert.patient_name}</h4>
-                            <span className="text-[10px] font-mono font-bold text-red-400 bg-red-100 px-2 py-0.5 rounded-full">{alert.id}</span>
-                          </div>
-                          <p className="text-xs text-red-600 font-bold mb-3 leading-relaxed">"{alert.message}"</p>
-                          <div className="flex items-center gap-2 text-[10px] text-red-500 font-black uppercase">
-                            <MapPin size={12} />
-                            {alert.location}
-                          </div>
-                        </div>
-                        <button 
-                          onClick={() => resolveSosAlert(alert.id)}
-                          className="w-full mt-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition shadow-md shadow-red-200"
-                        >
-                          {isRTL ? "استجابة وإلغاء الاستغاثة" : "Resolve Emergency"}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="border border-dashed border-red-100 rounded-2xl p-6 text-center text-xs text-slate-400">
-                    {isRTL ? "لا توجد استغاثات نشطة حاليا. جميع المرضى مستقرون." : "No active distress calls. All telemetry indicators normal."}
-                  </div>
-                )}
-              </div>
-
               {/* Devices Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {activeDevices.map((dev) => {
-                  const hasAlert = sosAlertsList.some(
-                    (alert) => alert.patient_id === dev.patient_id && alert.status === "Active"
-                  );
-
                   return (
                     <div
                       key={dev.id}
-                      className={`bg-white rounded-[2.5rem] border shadow-sm overflow-hidden flex flex-col justify-between transition-all ${
-                        hasAlert
-                          ? "border-red-500 ring-2 ring-red-100"
-                          : "border-slate-150 hover:border-slate-300"
-                      }`}
+                      className={`bg-white rounded-[2.5rem] border shadow-sm overflow-hidden flex flex-col justify-between transition-all border-slate-150 hover:border-slate-300`}
                     >
                       {/* Bed header */}
                       <div className="p-5 border-b border-gray-50 flex items-center justify-between bg-slate-50/50">
@@ -453,16 +410,12 @@ const NursesStationView: React.FC<NursesStationViewProps> = ({
                         </div>
                         <div>
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-black ${
-                            hasAlert
-                              ? "bg-red-100 text-red-700 animate-pulse"
-                              : dev.status === "paused"
+                            dev.status === "paused"
                               ? "bg-yellow-100 text-yellow-850"
                               : "bg-emerald-100 text-emerald-700"
                           }`}>
-                            <span className={`w-2 h-2 rounded-full ${hasAlert ? "bg-red-500" : dev.status === "paused" ? "bg-yellow-500" : "bg-emerald-500"}`} />
-                            {hasAlert 
-                              ? (isRTL ? "خطر حرج" : "CRITICAL") 
-                              : dev.status === "paused" 
+                            <span className={`w-2 h-2 rounded-full ${dev.status === "paused" ? "bg-yellow-500" : "bg-emerald-500"}`} />
+                            {dev.status === "paused" 
                               ? (isRTL ? "موقوف مؤقتا" : "PAUSED") 
                               : (isRTL ? "مستقر" : "MONITORING")}
                           </span>
@@ -487,7 +440,7 @@ const NursesStationView: React.FC<NursesStationViewProps> = ({
                             <svg className="w-full h-8 text-emerald-500" viewBox="0 0 100 40" fill="none" stroke="currentColor" strokeWidth="2">
                               <path
                                 d="M 0 20 L 25 20 L 30 10 L 35 30 L 40 5 L 45 35 L 50 20 L 100 20"
-                                className={hasAlert ? "text-red-500 animate-pulse" : "animate-pulse"}
+                                className="animate-pulse"
                               />
                             </svg>
                           </div>
@@ -690,15 +643,14 @@ const NursesStationView: React.FC<NursesStationViewProps> = ({
               {/* Device Selector */}
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
-                  {isRTL ? "اختر الجهاز الطبي المتوفر" : "Select Available Medical Asset"}
+                  {isRTL ? "اختر الجهاز الطبي المتوفر (اختياري)" : "Select Available Medical Asset (Optional)"}
                 </label>
                 <select
-                  required
                   value={linkAssetId}
                   onChange={(e) => setLinkAssetId(e.target.value)}
                   className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-teal-500 outline-none bg-white"
                 >
-                  <option value="">{isRTL ? "-- اختر من مخزون المستشفى --" : "-- Select Device --"}</option>
+                  <option value="">{isRTL ? "-- لا شيء (سرير مراقبة فقط) --" : "-- None (Telemetry Bed Only) --"}</option>
                   {selectableAssets.map((as) => (
                     <option key={as.id} value={as.id}>
                       [{as.id}] {as.name} - {as.category} ({as.location || "Operational"})
@@ -893,6 +845,83 @@ const NursesStationView: React.FC<NursesStationViewProps> = ({
                   className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-black cursor-pointer shadow-md"
                 >
                   {isRTL ? "حفظ وتحديث" : "Save Update"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          POPUP DIALOG: PATIENT DISCHARGE / EVACUATION REASON
+          ========================================== */}
+      {dischargeDeviceId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] max-w-md w-full p-6 shadow-2xl border border-gray-100 dark:border-slate-800 relative text-right">
+            <button
+              onClick={() => setDischargeDeviceId(null)}
+              className="absolute top-4 right-4 p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full cursor-pointer text-slate-500"
+            >
+              <X size={18} />
+            </button>
+            <h3 className={`text-xl font-black text-gray-800 dark:text-white mb-4 uppercase ${isRTL ? "text-right" : "text-left"}`}>
+              {isRTL ? "سبب إخلاء / خروج المريض" : "Patient Discharge / Evacuation Reason"}
+            </h3>
+            
+            <form onSubmit={submitDischarge} className={`space-y-4 ${isRTL ? "text-right" : "text-left"}`}>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-1">
+                  {isRTL ? "السبب الرئيسي" : "Primary Reason"}
+                </label>
+                <select
+                  value={dischargeReason}
+                  onChange={(e) => setDischargeReason(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
+                >
+                  <option value={isRTL ? "شفاء وتحسن الحالة" : "Condition Improved / Discharged"}>
+                    {isRTL ? "شفاء وتحسن الحالة" : "Condition Improved / Discharged"}
+                  </option>
+                  <option value={isRTL ? "انتقال لجناح آخر" : "Transferred to another ward"}>
+                    {isRTL ? "انتقال لجناح آخر" : "Transferred to another ward"}
+                  </option>
+                  <option value={isRTL ? "خروج بأمر الطبيب" : "Discharged by Doctor"}>
+                    {isRTL ? "خروج بأمر الطبيب" : "Discharged by Doctor"}
+                  </option>
+                  <option value={isRTL ? "إخلاء طوارئ" : "Emergency Evacuation"}>
+                    {isRTL ? "إخلاء طوارئ" : "Emergency Evacuation"}
+                  </option>
+                  <option value={isRTL ? "صيانة ومعايرة الجهاز" : "Device Maintenance"}>
+                    {isRTL ? "صيانة ومعايرة الجهاز" : "Device Maintenance"}
+                  </option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-1">
+                  {isRTL ? "ملاحظات إضافية وتفاصيل" : "Additional Notes / Details"}
+                </label>
+                <textarea
+                  value={customDischargeNotes}
+                  onChange={(e) => setCustomDischargeNotes(e.target.value)}
+                  placeholder={isRTL ? "اكتب أي ملاحظات أو أسباب تفصيلية هنا..." : "Type any additional details or notes here..."}
+                  rows={3}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-sm focus:ring-2 focus:ring-teal-500 outline-none resize-none"
+                />
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDischargeDeviceId(null)}
+                  className="flex-1 py-3 border border-slate-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 rounded-xl text-sm font-bold hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  {isRTL ? "إلغاء" : "Cancel"}
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-3 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-sm font-black cursor-pointer shadow-md"
+                >
+                  {isRTL ? "تأكيد الإخلاء" : "Confirm Discharge"}
                 </button>
               </div>
             </form>
