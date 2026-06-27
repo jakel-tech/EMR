@@ -1,7 +1,7 @@
 {
-  "name": "Hospital CMMS & HIMS Portal",
-  "short_name": "Hospital CMMS",
-  "description": "Bilingual Hospital CMMS & HIMS with RTL support, AI Diagnosis Copilot, Live Telehealth, and HR Staff Roster.",
+  "name": "سلامات | Salamat Portal",
+  "short_name": "Salamat",
+  "description": "Bilingual Salamat Portal with RTL support, AI Diagnosis Copilot, Live Telehealth, and HR Staff Roster.",
   "start_url": "/",
   "display": "standalone",
   "orientation": "any",

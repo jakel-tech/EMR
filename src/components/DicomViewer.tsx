@@ -84,8 +84,8 @@ const DicomViewer: React.FC<DicomViewerProps> = ({ dicomData, fileName }) => {
             windowWidth: dicomData === "brain_mri" ? "1500" : "255",
             dimensions: "512 x 512 representation",
             fileSize: "Compressed Procedural",
-            deviceModel: "HIMS Multi-slice Simulator",
-            institution: "HIMS Hospital"
+            deviceModel: "Salamat Multi-slice Simulator",
+            institution: "Salamat Hospital"
           });
           setIsLoaded(true);
           return;
@@ -435,7 +435,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({ dicomData, fileName }) => {
       ctx.font = '9px monospace';
       ctx.fillText(`W: ${Math.round(parseFloat(metadata.windowWidth || '1500') / contrast)} L: ${Math.round(parseFloat(metadata.windowCenter || '400') - (brightness - 1.0) * 800)}`, 16, 490);
       ctx.fillText(`CINE SLICE: ${currentSlice}/24`, 16, 474);
-      ctx.fillText(`Device Model: ${metadata.deviceModel || 'HIMS_DVS_512'}`, 16, 116);
+      ctx.fillText(`Device Model: ${metadata.deviceModel || 'Salamat_DVS_512'}`, 16, 116);
     }
 
     return () => { active = false; };

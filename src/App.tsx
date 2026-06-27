@@ -39,6 +39,8 @@ import {
   Moon,
   Sun,
   Cloud,
+  CloudUpload,
+  CloudDownload,
   Database,
   Activity,
   HeartPulse,
@@ -201,7 +203,7 @@ import { QRCodeSVG } from "qrcode.react";
 
 const apiFetch = async (
   resource: string | URL | globalThis.Request,
-  config?: RequestInit,
+  config?: RequestInit & { silent?: boolean },
 ) => {
   if (typeof resource === "string" && resource.startsWith("/api")) {
     config = config || {};
@@ -253,7 +255,9 @@ const apiFetch = async (
     if (res.ok && typeof resource === "string" && resource.startsWith("/api")) {
       const contentType = res.headers.get("content-type");
       if (contentType && !contentType.includes("application/json")) {
-        console.warn(`API route ${resource} returned non-JSON content: ${contentType}`);
+        if (!config?.silent) {
+          console.warn(`API route ${resource} returned non-JSON content: ${contentType}`);
+        }
         // If it's HTML, it's likely the SPA fallback or an error page
         if (contentType.includes("text/html")) {
           throw new Error("Server returned HTML instead of JSON. The API route might be missing or the server might be restarting.");
@@ -277,7 +281,9 @@ const apiFetch = async (
         headers: { "Content-Type": "application/json" },
       });
     }
-    console.error(`Fetch API Network Failure [${method}] ${resource}:`, err);
+    if (!config?.silent) {
+      console.error(`Fetch API Network Failure [${method}] ${resource}:`, err);
+    }
     throw err;
   }
 };
@@ -492,6 +498,7 @@ function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(
     !!localStorage.getItem("hims_token"),
   );
+
   const [isNfcScanning, setIsNfcScanning] = useState(false);
   const [showUpdates, setShowUpdates] = useState(false);
   const APP_VERSION = "2026.06.23";
@@ -738,7 +745,7 @@ function App() {
   });
 
   const [systemName, setSystemName] = useState<string>(
-    () => localStorage.getItem("system_name") || "HIMS Gateway",
+    () => localStorage.getItem("system_name") || (isRTL ? "سلامات" : "Salamat"),
   );
   const [systemLogo, setSystemLogo] = useState<string | null>(
     () => localStorage.getItem("system_logo") || null,
@@ -804,18 +811,18 @@ function App() {
 
       if (window.PublicKeyCredential && navigator.credentials) {
         try {
-          const challenge = new Uint8Array([1, 2, 3, 4, 12, 13, 14, 15]);
+          const challenge = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
           const userIdBytes = new TextEncoder().encode(
             currentUser?.id || "user",
           );
           const credential = await navigator.credentials.create({
             publicKey: {
               challenge: challenge,
-              rp: { name: "HIMS Portal", id: window.location.hostname },
+              rp: { name: "Salamat Portal", id: window.location.hostname },
               user: {
                 id: userIdBytes,
-                name: currentUser?.email || "user@hims.system",
-                displayName: currentUser?.name || "HIMS User",
+                name: currentUser?.email || "user@salamat.system",
+                displayName: currentUser?.name || "Salamat User",
               },
               pubKeyCredParams: [{ alg: -7, type: "public-key" }],
               authenticatorSelection: {
@@ -874,9 +881,9 @@ function App() {
     try {
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
-      if (window.PublicKeyCredential && navigator.credentials && cachedCredId) {
+      if (window.PublicKeyCredential && navigator.credentials && cachedCredId && !cachedCredId.startsWith("vbio-")) {
         try {
-          const challenge = new Uint8Array([1, 2, 3, 4, 12, 13, 14, 15]);
+          const challenge = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
           const allowedCredentials = [
             {
               type: "public-key" as const,
@@ -919,10 +926,10 @@ function App() {
         body: JSON.stringify(payload),
       });
       const data = await res.json();
-      if (!res.ok)
-        throw new Error(
-          data.error || "Biometric signature not verified or active",
-        );
+      if (!res.ok) {
+        const errorMsg = isRTL && data.errorAr ? data.errorAr : (data.error || "Biometric signature not verified or active");
+        throw new Error(errorMsg);
+      }
 
       localStorage.setItem("hims_token", data.token);
       localStorage.setItem("currentUserId", data.user.id);
@@ -971,6 +978,7 @@ function App() {
   const [chatAnalysis, setChatAnalysis] = useState<string | null>(null);
   const [suggestedActions, setSuggestedActions] = useState<{label: string, action: string}[]>([]);
   const [typedMsg, setTypedMsg] = useState("");
+  const [isChatShaking, setIsChatShaking] = useState(false);
   const [isVideoCallActive, setIsVideoCallActive] = useState(false);
   const [medicalImages, setMedicalImages] = useState<string[]>([]);
   const [deleteConfirm, setDeleteConfirm] = useState<{
@@ -1102,6 +1110,11 @@ function App() {
     "standard" | "ios" | "mac"
   >("standard");
 
+  // OTA Updates States
+  const [checkingForUpdates, setCheckingForUpdates] = useState(false);
+  const [newWorkerInstance, setNewWorkerInstance] = useState<any>(null);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+
   // Portal switching & self-registration states
   const [portalRoleTab, setPortalRoleTab] = useState<"staff" | "patient">("staff");
   const [isPatientSignUp, setIsPatientSignUp] = useState(false);
@@ -1114,9 +1127,13 @@ function App() {
   const [rgBloodType, setRgBloodType] = useState("O+");
   const [rgContactNumber, setRgContactNumber] = useState("");
   const [rgNationalId, setRgNationalId] = useState("");
+  const [rgAddress, setRgAddress] = useState("");
+  const [rgAllergies, setRgAllergies] = useState("");
+  const [rgMedicalHistory, setRgMedicalHistory] = useState("");
+  const [rgVisitType, setRgVisitType] = useState("outpatient");
 
   useEffect(() => {
-    // 1. Detect if HIMS is running in standalone desktop/mobile launcher mode
+    // 1. Detect if Salamat is running in standalone desktop/mobile launcher mode
     const checkIsStandalone = () => {
       const isStandalone =
         window.matchMedia("(display-mode: standalone)").matches ||
@@ -1155,8 +1172,14 @@ function App() {
     // Listen for Service Worker updates broadcasted from main.tsx
     const handleAppUpdate = (e: any) => {
       const newWorker = e.detail;
-      toast(isRTL ? "تحديث متوفر" : "Update Available", {
-        description: isRTL ? "يوجد إصدار جديد من التطبيق." : "A new version of the app is available.",
+      setNewWorkerInstance(newWorker);
+      setShowUpdateModal(true);
+      setCheckingForUpdates(false);
+      
+      toast(isRTL ? "✨ تحديث فوري متوفر لـ سلامات" : "✨ New Salamat Update Available", {
+        description: isRTL 
+          ? "يتوفر إصدار جديد يحتوي على تحسينات مذهلة وميزات جديدة." 
+          : "A new version of Salamat is ready to be applied offline.",
         action: {
           label: isRTL ? "تحديث الآن" : "Update Now",
           onClick: () => {
@@ -1167,7 +1190,20 @@ function App() {
       });
     };
 
+    const handleNoUpdate = () => {
+      setCheckingForUpdates(false);
+      toast.success(isRTL ? "تطبيق سلامات محدث بالكامل!" : "Salamat is completely up to date!");
+    };
+
+    const handleUpdateErr = (e: any) => {
+      setCheckingForUpdates(false);
+      const errMsg = e.detail || "Unknown error";
+      toast.error(isRTL ? `فشل فحص التحديثات: ${errMsg}` : `Update check failed: ${errMsg}`);
+    };
+
     window.addEventListener("app-update-available", handleAppUpdate);
+    window.addEventListener("app-no-update-found", handleNoUpdate);
+    window.addEventListener("app-update-error", handleUpdateErr);
 
     return () => {
       window.removeEventListener(
@@ -1176,6 +1212,8 @@ function App() {
       );
       mediaQuery.removeEventListener("change", handleMediaChange);
       window.removeEventListener("app-update-available", handleAppUpdate);
+      window.removeEventListener("app-no-update-found", handleNoUpdate);
+      window.removeEventListener("app-update-error", handleUpdateErr);
     };
   }, []);
 
@@ -1297,7 +1335,7 @@ function App() {
       modality: acqModality,
       studyDesc: "Baseline Diagnostic Study",
       date: new Date().toISOString().split("T")[0],
-      sourceAe: "HIMS_CENTRAL_MOD",
+      sourceAe: "SALAMAT_CENTRAL_MOD",
       thumbnail:
         "https://images.unsplash.com/photo-1516549655169-df83a0774514?w=400&h=400&fit=crop",
     };
@@ -1608,6 +1646,8 @@ function App() {
   const [aiDiagnosisResult, setAiDiagnosisResult] = useState("");
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const userDropdownRef = useRef<HTMLDivElement>(null);
+  const headerUserDropdownRef = useRef<HTMLDivElement>(null);
+  const headerNotificationsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -1616,6 +1656,18 @@ function App() {
         !userDropdownRef.current.contains(event.target as Node)
       ) {
         setShowUserDropdown(false);
+      }
+      if (
+        headerUserDropdownRef.current &&
+        !headerUserDropdownRef.current.contains(event.target as Node)
+      ) {
+        setShowHeaderUserDropdown(false);
+      }
+      if (
+        headerNotificationsRef.current &&
+        !headerNotificationsRef.current.contains(event.target as Node)
+      ) {
+        setShowNotifications(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -1713,6 +1765,8 @@ function App() {
 
   const [firebaseUser, setFirebaseUser] = useState<any>(null);
   const [backupHistory, setBackupHistory] = useState<any[]>([]);
+  const [syncStatus, setSyncStatus] = useState<any>(null);
+  const [isTriggeringSync, setIsTriggeringSync] = useState(false);
 
   // New features state
   const [woView, setWoView] = useState<"list" | "board">("list");
@@ -1747,12 +1801,25 @@ function App() {
     };
   });
 
+  useEffect(() => {
+    if (isLoggedIn && currentUser?.role === "Patient" && (currentUser as any)?.incomplete_profile && !isModalOpen) {
+      const timer = setTimeout(() => {
+        if (!isModalOpen) {
+          toast.info(isRTL ? "يرجى إكمال بيانات ملفك الشخصي للمتابعة (الرقم الوطني المكون من 11 رقماً، تاريخ الميلاد، العنوان، الخ..)" : "Please complete your profile details to continue (11-digit National ID, DOB, Address, etc..)");
+          openModal("patient", currentUser);
+        }
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [isLoggedIn, currentUser, isModalOpen, isRTL]);
+
   // Enhanced User Profile State Hooks
   const [profileAvatar, setProfileAvatar] = useState<string>("");
   const [profileBio, setProfileBio] = useState<string>("");
   const [profileSpecialty, setProfileSpecialty] = useState<string>("");
   const [profileStatus, setProfileStatus] = useState<string>("");
   const [profileSignature, setProfileSignature] = useState<string>("");
+  const [profileTelegramId, setProfileTelegramId] = useState<string>("");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   useEffect(() => {
@@ -1762,6 +1829,7 @@ function App() {
       setProfileSpecialty(currentUser.specialty || "");
       setProfileStatus(currentUser.status_message || "Available");
       setProfileSignature(currentUser.signature || "");
+      setProfileTelegramId(currentUser.telegram_chat_id || "");
     }
   }, [currentUser]);
 
@@ -1871,13 +1939,16 @@ function App() {
   const fetchTelehealthMessages = async () => {
     if (!isLoggedIn || !currentUser || currentUser.name === "Guest") return;
     try {
-      const res = await apiFetch("/api/telehealth/messages");
+      const res = await apiFetch("/api/telehealth/messages", { silent: true });
       if (res.ok) {
         const data = await res.json();
         setTelehealthMessages(data);
       }
-    } catch (err) {
-      console.error("Error fetching telehealth messages:", err);
+    } catch (err: any) {
+      // Suppress logging network errors caused by server restarts during background polling
+      if (!err?.message?.includes("HTML instead of JSON") && !err?.message?.includes("Failed to fetch")) {
+        console.error("Error fetching telehealth messages:", err);
+      }
     }
   };
 
@@ -1894,6 +1965,64 @@ function App() {
       return () => clearInterval(interval);
     }
   }, [isLoggedIn, currentUser]);
+
+  const playAlertTone = (type: "ping" | "msg") => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      if (type === "ping") {
+        const osc1 = audioCtx.createOscillator();
+        const osc2 = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        osc1.type = "sine";
+        osc2.type = "triangle";
+        osc1.frequency.setValueAtTime(880, audioCtx.currentTime);
+        osc1.frequency.exponentialRampToValueAtTime(1320, audioCtx.currentTime + 0.12);
+        osc2.frequency.setValueAtTime(440, audioCtx.currentTime);
+        osc2.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.18);
+        gainNode.gain.setValueAtTime(0.35, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
+        osc1.connect(gainNode);
+        osc2.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        osc1.start();
+        osc2.start();
+        osc1.stop(audioCtx.currentTime + 0.35);
+        osc2.stop(audioCtx.currentTime + 0.35);
+      } else {
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(1150, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(1550, audioCtx.currentTime + 0.08);
+        gainNode.gain.setValueAtTime(0.18, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.16);
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.16);
+      }
+    } catch (e) {
+      console.warn("AudioContext tone failed:", e);
+    }
+  };
+
+  const lastMsgCountRef = useRef(0);
+  useEffect(() => {
+    if (telehealthMessages.length > lastMsgCountRef.current) {
+      const lastMsg = telehealthMessages[telehealthMessages.length - 1];
+      if (lastMsg && lastMsg.sender_id !== currentUser?.id && lastMsgCountRef.current > 0) {
+        if (lastMsg.message.includes("PING!!!")) {
+          playAlertTone("ping");
+          setIsChatShaking(true);
+          setTimeout(() => setIsChatShaking(false), 550);
+          toast.info(isRTL ? `🚨 وصلك تنبيه عاجل من ${lastMsg.sender_name}` : `🚨 Urgent Alert received from ${lastMsg.sender_name}`);
+        } else {
+          playAlertTone("msg");
+        }
+      }
+    }
+    lastMsgCountRef.current = telehealthMessages.length;
+  }, [telehealthMessages, currentUser?.id, isRTL]);
 
   useEffect(() => {
     if (activeTab === "nursesStation" && isLoggedIn) {
@@ -2463,6 +2592,43 @@ function App() {
     };
   }, [isLoggedIn]);
 
+  const triggerGlobalSync = async () => {
+    setIsTriggeringSync(true);
+    try {
+      const res = await apiFetch("/api/system/trigger-sync", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(isRTL ? "تم بدء مزامنة النظام السحابية" : "Global system cloud sync triggered.");
+        fetchSyncStatus();
+      } else {
+        throw new Error(data.error);
+      }
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setIsTriggeringSync(false);
+    }
+  };
+
+  const triggerGlobalRestore = async () => {
+    if (!confirm(isRTL ? "هل أنت متأكد من استعادة قاعدة البيانات من السحابة؟ سيتم استبدال جميع البيانات الحالية!" : "Are you sure you want to restore the entire database from the cloud? This will overwrite ALL local data!")) return;
+    setIsTriggeringSync(true);
+    try {
+      const res = await apiFetch("/api/system/trigger-restore", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(isRTL ? "تمت استعادة النظام بنجاح. يرجى إعادة تحميل الصفحة." : "System restored successfully. Please reload the page.");
+        setTimeout(() => window.location.reload(), 2000);
+      } else {
+        throw new Error(data.error);
+      }
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setIsTriggeringSync(false);
+    }
+  };
+
   const fetchBackupHistory = async () => {
     try {
       const history = await getBackupsFromFirestore(activeHospitalId);
@@ -2471,6 +2637,25 @@ function App() {
       console.error("Failed to load backup history from Firestore:", e);
     }
   };
+
+  const fetchSyncStatus = async () => {
+    if (currentUser?.role !== "Super Admin") return;
+    try {
+      const res = await apiFetch("/api/system/sync-status");
+      if (res.ok) {
+        const data = await res.json();
+        setSyncStatus(data);
+      }
+    } catch (e) {
+      console.error("Failed to fetch sync status:", e);
+    }
+  };
+
+  useEffect(() => {
+    if (isLoggedIn && currentUser?.role === "Super Admin" && activeTab === "settings") {
+      fetchSyncStatus();
+    }
+  }, [isLoggedIn, currentUser, activeTab]);
 
   useEffect(() => {
     const unsubscribe = initAuth(
@@ -2514,7 +2699,7 @@ function App() {
   const getOrCreateDriveFolder = async (token: string): Promise<string> => {
     try {
       const searchRes = await fetch(
-        `https://www.googleapis.com/drive/v3/files?q=name='HIMS_Cloud_Backups'+and+mimeType='application/vnd.google-apps.folder'+and+trashed=false`,
+        `https://www.googleapis.com/drive/v3/files?q=name='Salamat_Cloud_Backups'+and+mimeType='application/vnd.google-apps.folder'+and+trashed=false`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },
@@ -2533,7 +2718,7 @@ function App() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            name: "HIMS_Cloud_Backups",
+            name: "Salamat_Cloud_Backups",
             mimeType: "application/vnd.google-apps.folder",
           }),
         },
@@ -2904,7 +3089,7 @@ function App() {
     }
 
     // Synchronize browser page title with current hospital name/system brand
-    const currentSystemName = systemName || "HIMS Gateway";
+    const currentSystemName = systemName || "Salamat Gateway";
     let newTitle = currentSystemName;
     if (activeHospital) {
       newTitle = isRTL
@@ -3196,7 +3381,7 @@ function App() {
         // Handle common Dev server / network boot up cold starts without throwing scary alerts to users
         if (errorMsg.includes("Failed to fetch") && retryCount < 4) {
           console.warn(
-            `HIMS clinical connection pending (attempt ${retryCount + 1}/4). Retrying in 1.5s...`,
+            `Salamat clinical connection pending (attempt ${retryCount + 1}/4). Retrying in 1.5s...`,
           );
           setTimeout(() => {
             fetchData(isBackground, retryCount + 1);
@@ -3323,6 +3508,12 @@ function App() {
     e.preventDefault();
     setIsLoading(true);
 
+    if (rgNationalId.trim().length !== 11 || !/^\d+$/.test(rgNationalId.trim())) {
+      toast.error(isRTL ? "الرقم الوطني يجب أن يتكون من 11 رقماً" : "National ID must be exactly 11 digits");
+      setIsLoading(false);
+      return;
+    }
+
     try {
       const res = await fetch("/api/auth/register-patient", {
         method: "POST",
@@ -3336,6 +3527,10 @@ function App() {
           bloodType: rgBloodType,
           contactNumber: rgContactNumber ? rgContactNumber.trim() : "",
           nationalId: rgNationalId ? rgNationalId.trim() : "",
+          address: rgAddress.trim(),
+          allergies: rgAllergies.trim(),
+          medicalHistory: rgMedicalHistory.trim(),
+          visitType: rgVisitType,
         }),
       });
       const data = await res.json();
@@ -3647,7 +3842,7 @@ function App() {
       setDicomFiles([]);
     }
     if (type === "verifyPhone" && item) {
-      setVerifyingPhone(item.phone || "");
+      setVerifyingPhone(item.email || "");
     }
     if (type === "user") {
       setVerifyingPhone(item?.phone || "");
@@ -4191,6 +4386,7 @@ function App() {
         specialty: profileSpecialty,
         status_message: profileStatus,
         signature: profileSignature,
+        telegram_chat_id: profileTelegramId,
       };
 
       if (typeof payload.permissions === "string") {
@@ -5637,7 +5833,7 @@ function App() {
                   Version Control
                 </p>
                 <p className="text-center font-mono text-[10px] text-primary-400">
-                  HIMS-V2.0.26-BUILD-FINAL
+                  SALAMAT-V2.0.26-BUILD-FINAL
                 </p>
               </div>
             </div>
@@ -5706,6 +5902,579 @@ function App() {
         toast.success(isRTL ? "تم رصد وحفظ قياسات مؤشراتك الحيوية بنجاح!" : "Physiological signs of health recorded successfully!");
       };
 
+      const handlePrintMedicalRecord = () => {
+        const logoUrl = hospitals.find((h) => h.id === currentUser.hospitalId || h.id === "hosp_01")?.logo_url || "";
+        const hospitalName = hospitals.find((h) => h.id === currentUser.hospitalId || h.id === "hosp_01")?.name || (isRTL ? "مستشفيات سلامات" : "Salamat Hospital");
+        
+        const html = `
+          <html>
+            <head>
+              <title>${isRTL ? "تقرير السجل الطبي للمريض" : "Patient Medical Record Report"}</title>
+              <style>
+                @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap');
+                @page {
+                  size: A4 portrait;
+                  margin: 12mm 15mm 15mm 15mm;
+                }
+                body {
+                  font-family: ${isRTL ? '"Cairo", "Inter", sans-serif' : '"Inter", sans-serif'};
+                  color: #1e293b;
+                  background-color: #ffffff;
+                  margin: 0;
+                  padding: 0;
+                  direction: ${isRTL ? "rtl" : "ltr"};
+                }
+                .header {
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+                  border-bottom: 3px double #0284c7;
+                  padding-bottom: 12px;
+                  margin-bottom: 20px;
+                }
+                .hospital-info {
+                  text-align: ${isRTL ? "right" : "left"};
+                }
+                .hospital-name {
+                  font-size: 18px;
+                  font-weight: 800;
+                  color: #0369a1;
+                  margin: 0;
+                }
+                .system-title {
+                  font-size: 11px;
+                  color: #64748b;
+                  margin-top: 2px;
+                }
+                .logo {
+                  max-height: 50px;
+                }
+                .doc-title {
+                  text-align: center;
+                  font-size: 16px;
+                  font-weight: 800;
+                  color: #0f172a;
+                  margin: 15px 0;
+                  text-transform: uppercase;
+                  letter-spacing: 0.5px;
+                }
+                .patient-card {
+                  background-color: #f8fafc;
+                  border: 1px solid #e2e8f0;
+                  border-radius: 12px;
+                  padding: 15px;
+                  margin-bottom: 25px;
+                  display: grid;
+                  grid-template-columns: repeat(2, 1fr);
+                  gap: 12px;
+                }
+                .info-item {
+                  font-size: 12px;
+                }
+                .info-label {
+                  font-weight: bold;
+                  color: #475569;
+                }
+                .info-val {
+                  color: #0f172a;
+                  font-weight: 600;
+                }
+                .section-title {
+                  font-size: 13px;
+                  font-weight: 800;
+                  color: #0369a1;
+                  border-bottom: 2px solid #e2e8f0;
+                  padding-bottom: 4px;
+                  margin-top: 20px;
+                  margin-bottom: 10px;
+                }
+                table {
+                  width: 100%;
+                  border-collapse: collapse;
+                  margin-bottom: 15px;
+                }
+                th {
+                  background-color: #f1f5f9;
+                  font-size: 11px;
+                  font-weight: bold;
+                  color: #334155;
+                  text-align: ${isRTL ? "right" : "left"};
+                  padding: 8px 10px;
+                  border-bottom: 2px solid #cbd5e1;
+                }
+                td {
+                  padding: 8px 10px;
+                  font-size: 11px;
+                  border-bottom: 1px solid #f1f5f9;
+                  vertical-align: top;
+                }
+                .vital-grid {
+                  display: grid;
+                  grid-template-columns: repeat(6, 1fr);
+                  gap: 10px;
+                  margin-bottom: 20px;
+                }
+                .vital-box {
+                  background-color: #f0fdf4;
+                  border: 1px solid #dcfce7;
+                  border-radius: 8px;
+                  padding: 8px;
+                  text-align: center;
+                }
+                .vital-box-title {
+                  font-size: 9px;
+                  color: #15803d;
+                  font-weight: bold;
+                  text-transform: uppercase;
+                }
+                .vital-box-value {
+                  font-size: 12px;
+                  font-weight: 800;
+                  color: #166534;
+                  margin-top: 2px;
+                }
+                .footer {
+                  position: fixed;
+                  bottom: 10mm;
+                  left: 15mm;
+                  right: 15mm;
+                  border-top: 1px dashed #cbd5e1;
+                  padding-top: 8px;
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+                  font-size: 9px;
+                  color: #64748b;
+                }
+                .no-print-btn {
+                  display: none;
+                }
+                @media print {
+                  .no-print-btn { display: none !important; }
+                }
+                .btn-print {
+                  background-color: #2563eb;
+                  color: white;
+                  border: none;
+                  padding: 10px 20px;
+                  font-size: 12px;
+                  font-weight: bold;
+                  border-radius: 6px;
+                  cursor: pointer;
+                }
+              </style>
+            </head>
+            <body>
+              <div class="no-print-btn" style="padding: 15px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 10px;">
+                <button class="btn-print" onclick="window.print()">${isRTL ? "طباعة السجل الطبي" : "Print Medical Record"}</button>
+              </div>
+              <div style="padding: 15px;">
+                <div class="header">
+                  <div class="hospital-info">
+                    <h1 class="hospital-name">${hospitalName}</h1>
+                    <div class="system-title">${isRTL ? "منظومة الرعاية والربط المتكاملة (سلامات)" : "Salamat Comprehensive Connected Care Network"}</div>
+                  </div>
+                  ${logoUrl ? `<img src="${logoUrl}" class="logo" />` : `<div style="font-weight:800; color:#0284c7; font-size: 20px;">Salamat</div>`}
+                </div>
+
+                <div class="doc-title">${isRTL ? "السجل الطبي الموحد للمريض" : "Unified Patient Clinical Summary"}</div>
+
+                <div class="patient-card">
+                  <div class="info-item">
+                    <span class="info-label">${isRTL ? "اسم المريض:" : "Patient Name:"}</span>
+                    <span class="info-val">${currentUser.name}</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="info-label">${isRTL ? "الرقم القومي / الهوية:" : "National ID:"}</span>
+                    <span class="info-val">${patientNationalId}</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="info-label">${isRTL ? "الجنس:" : "Gender:"}</span>
+                    <span class="info-val">${isRTL ? (currentUser.gender === "Male" ? "ذكر" : currentUser.gender === "Female" ? "أنثى" : "أخرى") : currentUser.gender || "Male"}</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="info-label">${isRTL ? "تاريخ الميلاد:" : "Date of Birth:"}</span>
+                    <span class="info-val">${currentUser.dob || "1990-05-14"}</span>
+                  </div>
+                </div>
+
+                <!-- Vitals section -->
+                <div class="section-title">${isRTL ? "آخر المؤشرات الحيوية المرصودة" : "Latest Patient Vitals Status"}</div>
+                <div class="vital-grid">
+                  <div class="vital-box">
+                    <div class="vital-box-title">${isRTL ? "نبض القلب" : "Heart Rate"}</div>
+                    <div class="vital-box-value">${patientVitals[0]?.heartRate || "72"} bpm</div>
+                  </div>
+                  <div class="vital-box" style="background-color: #f0f9ff; border-color: #e0f2fe;">
+                    <div class="vital-box-title" style="color: #0369a1;">${isRTL ? "الأكسجين" : "Oxygen SpO2"}</div>
+                    <div class="vital-box-value" style="color: #075985;">${patientVitals[0]?.oxygen || "98"} %</div>
+                  </div>
+                  <div class="vital-box" style="background-color: #fffbeb; border-color: #fef3c7;">
+                    <div class="vital-box-title" style="color: #b45309;">${isRTL ? "ضغط الدم" : "Blood Pressure"}</div>
+                    <div class="vital-box-value" style="color: #92400e;">${patientVitals[0]?.bp || "120/80"}</div>
+                  </div>
+                  <div class="vital-box" style="background-color: #fdf2f8; border-color: #fce7f3;">
+                    <div class="vital-box-title" style="color: #be185d;">${isRTL ? "مستوى السكر" : "Glucose"}</div>
+                    <div class="vital-box-value" style="color: #9d174d;">${patientVitals[0]?.glucose || "95"} mg/dL</div>
+                  </div>
+                  <div class="vital-box" style="background-color: #faf5ff; border-color: #f3e8ff;">
+                    <div class="vital-box-title" style="color: #7e22ce;">${isRTL ? "درجة الحرارة" : "Temperature"}</div>
+                    <div class="vital-box-value" style="color: #6b21a8;">${patientVitals[0]?.temperature || "36.6"} °C</div>
+                  </div>
+                  <div class="vital-box" style="background-color: #f8fafc; border-color: #e2e8f0;">
+                    <div class="vital-box-title" style="color: #475569;">${isRTL ? "الوزن" : "Weight"}</div>
+                    <div class="vital-box-value" style="color: #334155;">${patientVitals[0]?.weight || "70.0"} kg</div>
+                  </div>
+                </div>
+
+                <!-- Diagnoses and medical history -->
+                <div class="section-title">${isRTL ? "التاريخ السريري والتشخيصات" : "Clinical Diagnoses & Visit History"}</div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th style="width: 15%">${isRTL ? "التاريخ" : "Date"}</th>
+                      <th style="width: 25%">${isRTL ? "الطبيب المعالج" : "Consultant"}</th>
+                      <th style="width: 30%">${isRTL ? "التشخيص" : "Diagnosis"}</th>
+                      <th style="width: 30%">${isRTL ? "الإرشادات وخطة العلاج" : "Instructions & Care Plan"}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${activePatientRecords.map(rec => `
+                      <tr>
+                        <td><strong>${rec.visitDate}</strong></td>
+                        <td>${rec.doctorName}</td>
+                        <td><span style="color:#0369a1; font-weight:700;">${rec.diagnosis}</span></td>
+                        <td>${rec.doctorInstructions || rec.treatment || (isRTL ? "راحة تامة ومتابعة الضغط." : "General clinical follow-up.")}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+
+                <!-- Active Medications prescriptions -->
+                <div class="section-title">${isRTL ? "الوصفات والأدوية النشطة" : "Active Medical Prescriptions (Rx)"}</div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>${isRTL ? "الدواء" : "Medication"}</th>
+                      <th>${isRTL ? "الجرعة" : "Dosage"}</th>
+                      <th>${isRTL ? "طريقة الاستخدام" : "Route"}</th>
+                      <th>${isRTL ? "التكرار / المواعيد اليومية" : "Frequency & Schedule"}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${activePatientMeds.map(med => `
+                      <tr>
+                        <td><strong>${med.medicationName || med.medication_id}</strong></td>
+                        <td>${med.dose}</td>
+                        <td>${med.route || (isRTL ? "عن طريق الفم" : "Oral")}</td>
+                        <td>${med.frequency} (${isRTL ? "مجدول" : "Time"}: ${med.scheduled_time})</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+
+                <!-- Past visits -->
+                <div class="section-title">${isRTL ? "زيارات المنشآت الطبية الأخيرة" : "Recent Medical Facility Visits"}</div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>${isRTL ? "المنشأة الطبية" : "Hospital/Clinic"}</th>
+                      <th>${isRTL ? "التاريخ" : "Visit Date"}</th>
+                      <th>${isRTL ? "سبب الزيارة" : "Purpose"}</th>
+                      <th>${isRTL ? "الحالة" : "Status"}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${hospitalVisits.filter(v => v.patient_id === currentUser.id).length > 0 ? 
+                      hospitalVisits.filter(v => v.patient_id === currentUser.id).map(visit => {
+                        const hospital = hospitals.find(h => h.id === visit.hospital_id);
+                        return `
+                          <tr>
+                            <td><strong>${hospital?.name || (isRTL ? "منشأة طبية" : "Medical Facility")}</strong></td>
+                            <td>${visit.visit_date?.split('T')[0] || new Date().toISOString().split('T')[0]}</td>
+                            <td>${visit.reason}</td>
+                            <td><span style="color: ${visit.status === 'Discharged' ? '#15803d' : '#b45309'}; font-weight: bold;">${visit.status}</span></td>
+                          </tr>
+                        `;
+                      }).join('') : `
+                        <tr>
+                          <td colspan="4" style="text-align: center; color: #94a3b8;">${isRTL ? "لا توجد زيارات سابقة مدونة" : "No previous visits documented"}</td>
+                        </tr>
+                      `
+                    }
+                  </tbody>
+                </table>
+
+                <div class="footer">
+                  <span>${isRTL ? "تم إنشاء هذا التقرير تلقائياً بواسطة نظام سلامات للربط الطبي" : "Generated by Salamat Connected Medical Network"}</span>
+                  <span>SHA256: SALAMAT-SECURE-MED-FILE-${currentUser.id.substring(0, 5).toUpperCase()}</span>
+                </div>
+              </div>
+            </body>
+          </html>
+        `;
+        
+        executePrintWithIframe(html);
+      };
+
+      const handlePrintMedicalImage = (scan: any) => {
+        const logoUrl = hospitals.find((h) => h.id === currentUser.hospitalId || h.id === "hosp_01")?.logo_url || "";
+        const hospitalName = hospitals.find((h) => h.id === currentUser.hospitalId || h.id === "hosp_01")?.name || (isRTL ? "مستشفيات سلامات" : "Salamat Hospital");
+        
+        let svgImage = "";
+        if (scan.imageRepresentation === "brain_mri" || scan.modality === "MR") {
+          svgImage = `
+            <svg viewBox="0 0 400 400" width="100%" height="100%" style="background:#0a0a0c; border-radius:16px;">
+              <ellipse cx="200" cy="200" rx="140" ry="165" fill="none" stroke="#f1f5f9" stroke-width="10" opacity="0.95" />
+              <path d="M 120,200 C 120,100 160,80 200,80 C 240,80 280,100 280,200 C 280,300 240,320 200,320 C 160,320 120,300 120,200 Z" fill="#334155" opacity="0.6" />
+              <path d="M 170,200 C 170,160 185,150 200,150 C 215,150 230,160 230,200 C 230,240 215,250 200,250 C 185,250 170,240 170,200 Z" fill="#0f172a" stroke="#cbd5e1" stroke-dasharray="3,3" stroke-width="2" />
+              <line x1="200" y1="80" x2="200" y2="320" stroke="#f1f5f9" stroke-width="2" opacity="0.4" />
+              <circle cx="200" cy="200" r="15" fill="#1e293b" opacity="0.8" />
+              <line x1="200" y1="30" x2="200" y2="370" stroke="#10b981" stroke-width="1" stroke-dasharray="5,5" opacity="0.3" />
+              <line x1="30" y1="200" x2="370" y2="200" stroke="#10b981" stroke-width="1" stroke-dasharray="5,5" opacity="0.3" />
+              <line x1="360" y1="100" x2="360" y2="300" stroke="#fff" stroke-width="2" opacity="0.5" />
+              <line x1="355" y1="100" x2="365" y2="100" stroke="#fff" stroke-width="2" opacity="0.5" />
+              <line x1="355" y1="200" x2="365" y2="200" stroke="#fff" stroke-width="2" opacity="0.5" />
+              <line x1="355" y1="300" x2="365" y2="300" stroke="#fff" stroke-width="2" opacity="0.5" />
+              <text x="345" y="205" fill="#fff" font-size="10" font-family="monospace" opacity="0.7">10cm</text>
+              <text x="25" y="45" fill="#10b981" font-size="12" font-family="monospace" font-weight="bold">MR BRAIN AXIAL</text>
+              <text x="25" y="375" fill="#94a3b8" font-size="10" font-family="monospace">Salamat PACS Ultima</text>
+            </svg>
+          `;
+        } else {
+          svgImage = `
+            <svg viewBox="0 0 400 400" width="100%" height="100%" style="background:#0a0a0c; border-radius:16px;">
+              <rect x="188" y="40" width="24" height="320" rx="4" fill="#64748b" opacity="0.5" />
+              <line x1="200" y1="40" x2="200" y2="360" stroke="#94a3b8" stroke-width="2" stroke-dasharray="8,4" />
+              <path d="M 175,100 C 130,90 80,120 80,220 C 80,280 110,300 160,290 C 175,287 175,270 175,250 Z" fill="#1e293b" stroke="#cbd5e1" stroke-width="3" opacity="0.8" />
+              <path d="M 225,100 C 270,90 320,120 320,220 C 320,280 290,300 240,290 C 225,287 225,270 225,250 Z" fill="#1e293b" stroke="#cbd5e1" stroke-width="3" opacity="0.8" />
+              <path d="M 180,180 C 180,180 155,200 155,230 C 155,260 185,275 210,275 C 235,275 220,180 180,180 Z" fill="#475569" opacity="0.6" />
+              <path d="M 80,120 Q 200,160 320,120 M 80,160 Q 200,200 320,160 M 80,200 Q 200,240 320,200 M 80,240 Q 200,280 320,240" fill="none" stroke="#f1f5f9" stroke-width="3" opacity="0.25" />
+              <line x1="200" y1="30" x2="200" y2="370" stroke="#10b981" stroke-width="1" stroke-dasharray="5,5" opacity="0.3" />
+              <line x1="30" y1="200" x2="370" y2="200" stroke="#10b981" stroke-width="1" stroke-dasharray="5,5" opacity="0.3" />
+              <text x="25" y="45" fill="#10b981" font-size="12" font-family="monospace" font-weight="bold">CHEST AP X-RAY</text>
+              <text x="25" y="375" fill="#94a3b8" font-size="10" font-family="monospace">Salamat PACS Ultima</text>
+            </svg>
+          `;
+        }
+
+        const html = `
+          <html>
+            <head>
+              <title>${scan.description} - ${isRTL ? "تقرير الفحص الطبي الرقمي" : "Digital Radiological Study Report"}</title>
+              <style>
+                @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap');
+                @page {
+                  size: A4 portrait;
+                  margin: 12mm 15mm 15mm 15mm;
+                }
+                body {
+                  font-family: ${isRTL ? '"Cairo", "Inter", sans-serif' : '"Inter", sans-serif'};
+                  color: #1e293b;
+                  background-color: #ffffff;
+                  margin: 0;
+                  padding: 0;
+                  direction: ${isRTL ? "rtl" : "ltr"};
+                }
+                .header {
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+                  border-bottom: 3px double #0ea5e9;
+                  padding-bottom: 12px;
+                  margin-bottom: 20px;
+                }
+                .hospital-info {
+                  text-align: ${isRTL ? "right" : "left"};
+                }
+                .hospital-name {
+                  font-size: 18px;
+                  font-weight: 800;
+                  color: #0369a1;
+                  margin: 0;
+                }
+                .logo {
+                  max-height: 50px;
+                }
+                .doc-title {
+                  text-align: center;
+                  font-size: 15px;
+                  font-weight: 800;
+                  color: #0f172a;
+                  margin: 10px 0 20px 0;
+                  text-transform: uppercase;
+                  letter-spacing: 0.5px;
+                }
+                .main-layout {
+                  display: grid;
+                  grid-template-columns: 1fr;
+                  gap: 20px;
+                }
+                @media (min-width: 600px) {
+                  .main-layout {
+                    grid-template-columns: 1.2fr 1fr;
+                  }
+                }
+                .image-container {
+                  border: 2px solid #e2e8f0;
+                  border-radius: 20px;
+                  padding: 8px;
+                  background-color: #0f172a;
+                  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+                }
+                .metadata-card {
+                  background-color: #f8fafc;
+                  border: 1px solid #e2e8f0;
+                  border-radius: 12px;
+                  padding: 12px;
+                  margin-bottom: 15px;
+                  font-size: 11px;
+                }
+                .meta-row {
+                  display: flex;
+                  justify-content: space-between;
+                  margin-bottom: 6px;
+                  border-bottom: 1px solid #f1f5f9;
+                  padding-bottom: 4px;
+                }
+                .meta-label {
+                  font-weight: bold;
+                  color: #64748b;
+                }
+                .meta-value {
+                  font-weight: 600;
+                  color: #0f172a;
+                }
+                .findings-card {
+                  background-color: #f0fdf4;
+                  border: 1px solid #bbf7d0;
+                  border-radius: 16px;
+                  padding: 15px;
+                  margin-top: 10px;
+                }
+                .findings-title {
+                  font-size: 11px;
+                  font-weight: 800;
+                  color: #15803d;
+                  text-transform: uppercase;
+                  letter-spacing: 0.5px;
+                  margin-bottom: 8px;
+                  display: flex;
+                  align-items: center;
+                  gap: 6px;
+                }
+                .findings-text {
+                  font-size: 12px;
+                  line-height: 1.6;
+                  color: #14532d;
+                  font-style: italic;
+                }
+                .footer {
+                  position: fixed;
+                  bottom: 10mm;
+                  left: 15mm;
+                  right: 15mm;
+                  border-top: 1px dashed #cbd5e1;
+                  padding-top: 8px;
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+                  font-size: 8px;
+                  color: #64748b;
+                }
+                .no-print-btn {
+                  display: none;
+                }
+                @media print {
+                  .no-print-btn { display: none !important; }
+                }
+                .btn-print {
+                  background-color: #0284c7;
+                  color: white;
+                  border: none;
+                  padding: 10px 20px;
+                  font-size: 12px;
+                  font-weight: bold;
+                  border-radius: 6px;
+                  cursor: pointer;
+                }
+              </style>
+            </head>
+            <body>
+              <div class="no-print-btn" style="padding: 15px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 10px;">
+                <button class="btn-print" onclick="window.print()">${isRTL ? "طباعة تقرير الفحص" : "Print Radiology Report"}</button>
+              </div>
+              <div style="padding: 15px;">
+                <div class="header">
+                  <div class="hospital-info">
+                    <h1 class="hospital-name">${hospitalName}</h1>
+                    <div class="system-title">${isRTL ? "قسم الأشعة والتصوير الطبي الرقمي (PACS)" : "Department of Radiology & Digital Medical Imaging"}</div>
+                  </div>
+                  ${logoUrl ? `<img src="${logoUrl}" class="logo" />` : `<div style="font-weight:800; color:#0284c7; font-size: 20px;">Salamat</div>`}
+                </div>
+
+                <div class="doc-title">${isRTL ? "تقرير فحص الأشعة المعتمد" : "Official Radiological Diagnosis & Imaging Report"}</div>
+
+                <div class="main-layout">
+                  <div class="image-container">
+                    ${svgImage}
+                  </div>
+                  
+                  <div>
+                    <div class="metadata-card">
+                      <div class="findings-title" style="color: #0284c7; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-bottom: 10px;">
+                        ${isRTL ? "بيانات الفحص والمريض" : "STUDY & SUBJECT METADATA"}
+                      </div>
+                      <div class="meta-row">
+                        <span class="meta-label">${isRTL ? "اسم المريض:" : "Patient Name:"}</span>
+                        <span class="meta-value">${currentUser.name}</span>
+                      </div>
+                      <div class="meta-row">
+                        <span class="meta-label">${isRTL ? "معرف المريض / الهوية:" : "Patient ID:"}</span>
+                        <span class="meta-value">${patientNationalId}</span>
+                      </div>
+                      <div class="meta-row">
+                        <span class="meta-label">${isRTL ? "طبيعة الفحص:" : "Modality & Study:"}</span>
+                        <span class="meta-value">${scan.modality} - ${scan.description}</span>
+                      </div>
+                      <div class="meta-row">
+                        <span class="meta-label">${isRTL ? "تاريخ الفحص:" : "Study Date:"}</span>
+                        <span class="meta-value">${scan.studyDate} ${scan.studyTime || ""}</span>
+                      </div>
+                      <div class="meta-row">
+                        <span class="meta-label">${isRTL ? "المؤسسة الطبية:" : "Facility/Institution:"}</span>
+                        <span class="meta-value">${scan.institution || "Salamat Center"}</span>
+                      </div>
+                      <div class="meta-row">
+                        <span class="meta-label">${isRTL ? "الطبيب المستشار:" : "Ref. Consultant:"}</span>
+                        <span class="meta-value">${scan.refPhysician}</span>
+                      </div>
+                    </div>
+
+                    <div class="findings-card">
+                      <div class="findings-title">
+                        <span>🔍</span>
+                        <span>${isRTL ? "التشخيص والنتائج السريرية" : "DIAGNOSTIC FINDINGS & CLINICAL INTERPRETATION"}</span>
+                      </div>
+                      <div class="findings-text">
+                        "${scan.findings}"
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="footer">
+                  <span>${isRTL ? "تم إنشاؤه وتأكيده مشفراً بواسطة أخصائي الأشعة" : "Digitally generated & verified by certified Radiologist"}</span>
+                  <span>SECURITY-HASH: PACS-MR-XRAY-${scan.id.substring(0, 8).toUpperCase()}</span>
+                </div>
+              </div>
+            </body>
+          </html>
+        `;
+
+        executePrintWithIframe(html);
+      };
+
       // Helper to generate a clinical ICD-10 Code based on diagnosis keywords
       const getIcd10Code = (diag: string) => {
         const d = (diag || "").toLowerCase();
@@ -5764,7 +6533,7 @@ function App() {
           studyDate: "2026-06-20",
           studyTime: "11:15:00",
           description: isRTL ? "تصوير رنين مغناطيسي للدماغ T2" : "BRAIN T2 FAST MRI",
-          institution: "HIMS Imaging Suite",
+          institution: "Salamat Imaging Suite",
           refPhysician: "Dr. Ahmed Mansour",
           slicesCount: 64,
           windowCenter: 80,
@@ -5786,7 +6555,7 @@ function App() {
           studyDate: "2026-06-14",
           studyTime: "09:30:15",
           description: isRTL ? "أشعة سينية رقمية للصدر ومستوى الرئتين" : "CHEST AP DIGITAL X-RAY",
-          institution: "HIMS Radiology Dept",
+          institution: "Salamat Radiology Dept",
           refPhysician: "Dr. Laila Salem",
           slicesCount: 1,
           windowCenter: 400,
@@ -5902,13 +6671,13 @@ function App() {
           s.patientName?.toLowerCase() === currentUser.name?.toLowerCase()
       );
 
-      const activePatientScans = myScans.length > 0 ? myScans : fallbackScans;
-      const activePatientRecords = myRecords.length > 0 ? myRecords : fallbackRecords;
+      const activePatientScans = myScans.length > 0 ? myScans : (currentUser.email === "patient@example.com" ? fallbackScans : []);
+      const activePatientRecords = myRecords.length > 0 ? myRecords : (currentUser.email === "patient@example.com" ? fallbackRecords : []);
       
       const dbSchedules = medicationSchedules?.filter(
         (m) => m.patient_id === currentUser.id || m.patientId === currentUser.id
       ) || [];
-      const activePatientMeds = dbSchedules.length > 0 ? dbSchedules : fallbackMeds;
+      const activePatientMeds = dbSchedules.length > 0 ? dbSchedules : (currentUser.email === "patient@example.com" ? fallbackMeds : []);
 
       // Filter medication schedule based on selected pill state filter
       const filteredPatientMeds = activePatientMeds.filter(med => {
@@ -5931,6 +6700,13 @@ function App() {
                 </h2>
                 <div className="flex flex-wrap gap-3 mt-4">
                   <button
+                    onClick={() => openModal("patient", currentUser)}
+                    className="bg-indigo-500 hover:bg-indigo-600 text-white font-black text-[10px] px-5 py-3 rounded-2xl shadow-lg shadow-indigo-500/20 active:scale-95 transition-all uppercase tracking-widest flex items-center gap-2"
+                  >
+                    <User size={14} />
+                    {isRTL ? "تعديل الملف الشخصي" : "Edit My Profile"}
+                  </button>
+                  <button
                     onClick={() => setIsVisitModalOpen(true)}
                     className="bg-emerald-500 hover:bg-emerald-600 text-white font-black text-[10px] px-5 py-3 rounded-2xl shadow-lg shadow-emerald-500/20 active:scale-95 transition-all uppercase tracking-widest flex items-center gap-2"
                   >
@@ -5946,6 +6722,13 @@ function App() {
                   >
                     <MessageSquare size={14} />
                     {isRTL ? "استشارة فورية" : "Start Consult"}
+                  </button>
+                  <button
+                    onClick={handlePrintMedicalRecord}
+                    className="bg-sky-600 hover:bg-sky-500 text-white font-black text-[10px] px-5 py-3 rounded-2xl shadow-lg shadow-sky-600/20 active:scale-95 transition-all uppercase tracking-widest flex items-center gap-2"
+                  >
+                    <Printer size={14} />
+                    {isRTL ? "طباعة الملف الطبي الكامل" : "Print Complete Medical File"}
                   </button>
                 </div>
                 <p className="text-blue-100/70 font-medium max-w-xl text-xs leading-relaxed">
@@ -6200,9 +6983,225 @@ function App() {
                             {rec.diagnosis}
                           </h4>
                         </div>
-                        <div className="flex flex-col items-end text-right font-mono self-start sm:self-auto">
-                          <span className="text-[10px] font-black text-slate-800 dark:text-emerald-400">{rec.doctorName}</span>
-                          <span className="text-[8px] font-bold text-slate-400 tracking-tight mt-0.5">{rec.visitDate}</span>
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => {
+                              const logoUrl = hospitals.find((h) => h.id === currentUser.hospitalId || h.id === "hosp_01")?.logo_url || "";
+                              const hospitalName = hospitals.find((h) => h.id === currentUser.hospitalId || h.id === "hosp_01")?.name || (isRTL ? "مستشفيات سلامات" : "Salamat Hospital");
+                              
+                              const html = `
+                                <html>
+                                  <head>
+                                    <title>${isRTL ? "تقرير تشخيص طبي" : "Clinical Diagnosis Report"}</title>
+                                    <style>
+                                      @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap');
+                                      @page {
+                                        size: A4 portrait;
+                                        margin: 15mm;
+                                      }
+                                      body {
+                                        font-family: ${isRTL ? '"Cairo", "Inter", sans-serif' : '"Inter", sans-serif'};
+                                        color: #1e293b;
+                                        background-color: #ffffff;
+                                        margin: 0;
+                                        padding: 0;
+                                        direction: ${isRTL ? "rtl" : "ltr"};
+                                      }
+                                      .header {
+                                        display: flex;
+                                        justify-content: space-between;
+                                        align-items: center;
+                                        border-bottom: 3px double #059669;
+                                        padding-bottom: 12px;
+                                        margin-bottom: 20px;
+                                      }
+                                      .hospital-info {
+                                        text-align: ${isRTL ? "right" : "left"};
+                                      }
+                                      .hospital-name {
+                                        font-size: 18px;
+                                        font-weight: 800;
+                                        color: #047857;
+                                        margin: 0;
+                                      }
+                                      .system-title {
+                                        font-size: 11px;
+                                        color: #64748b;
+                                        margin-top: 2px;
+                                      }
+                                      .logo {
+                                        max-height: 55px;
+                                      }
+                                      .doc-title {
+                                        text-align: center;
+                                        font-size: 16px;
+                                        font-weight: 800;
+                                        color: #0f172a;
+                                        margin: 15px 0 25px 0;
+                                        text-transform: uppercase;
+                                        letter-spacing: 0.5px;
+                                      }
+                                      .patient-card {
+                                        background-color: #f8fafc;
+                                        border: 1px solid #e2e8f0;
+                                        border-radius: 12px;
+                                        padding: 15px;
+                                        margin-bottom: 25px;
+                                        display: grid;
+                                        grid-template-columns: repeat(2, 1fr);
+                                        gap: 12px;
+                                      }
+                                      .info-item {
+                                        font-size: 12px;
+                                      }
+                                      .info-label {
+                                        font-weight: bold;
+                                        color: #475569;
+                                      }
+                                      .info-val {
+                                        color: #0f172a;
+                                        font-weight: 600;
+                                      }
+                                      .section-title {
+                                        font-size: 13px;
+                                        font-weight: 800;
+                                        color: #047857;
+                                        border-bottom: 2px solid #e2e8f0;
+                                        padding-bottom: 4px;
+                                        margin-top: 20px;
+                                        margin-bottom: 10px;
+                                      }
+                                      .notes-card {
+                                        background-color: #f0fdf4;
+                                        border: 1px solid #bbf7d0;
+                                        border-radius: 12px;
+                                        padding: 15px;
+                                        margin-bottom: 15px;
+                                      }
+                                      .notes-title {
+                                        font-size: 11px;
+                                        font-weight: bold;
+                                        color: #15803d;
+                                        text-transform: uppercase;
+                                        margin-bottom: 6px;
+                                      }
+                                      .notes-content {
+                                        font-size: 12px;
+                                        line-height: 1.6;
+                                        color: #14532d;
+                                      }
+                                      .footer {
+                                        position: fixed;
+                                        bottom: 15mm;
+                                        left: 15mm;
+                                        right: 15mm;
+                                        border-top: 1px dashed #cbd5e1;
+                                        padding-top: 8px;
+                                        display: flex;
+                                        justify-content: space-between;
+                                        align-items: center;
+                                        font-size: 9px;
+                                        color: #64748b;
+                                      }
+                                      .no-print-btn {
+                                        display: none;
+                                      }
+                                      @media print {
+                                        .no-print-btn { display: none !important; }
+                                      }
+                                      .btn-print {
+                                        background-color: #059669;
+                                        color: white;
+                                        border: none;
+                                        padding: 10px 20px;
+                                        font-size: 12px;
+                                        font-weight: bold;
+                                        border-radius: 6px;
+                                        cursor: pointer;
+                                      }
+                                    </style>
+                                  </head>
+                                  <body>
+                                    <div class="no-print-btn" style="padding: 15px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 10px;">
+                                      <button class="btn-print" onclick="window.print()">${isRTL ? "طباعة الإفادة" : "Print Clinical Slip"}</button>
+                                    </div>
+                                    <div style="padding: 15px;">
+                                      <div class="header">
+                                        <div class="hospital-info">
+                                          <h1 class="hospital-name">${hospitalName}</h1>
+                                          <div class="system-title">${isRTL ? "إفادة تشخيص وتقرير زيارة طبية" : "Official Patient Clinical Encounter Recessional Slip"}</div>
+                                        </div>
+                                        ${logoUrl ? `<img src="${logoUrl}" class="logo" />` : `<div style="font-weight:800; color:#059669; font-size: 20px;">Salamat</div>`}
+                                      </div>
+
+                                      <div class="doc-title">${isRTL ? "إفادة طبية معتمدة" : "Encounter Diagnostic Record Summary"}</div>
+
+                                      <div class="patient-card">
+                                        <div class="info-item">
+                                          <span class="info-label">${isRTL ? "اسم المريض:" : "Patient Name:"}</span>
+                                          <span class="info-val">${currentUser.name}</span>
+                                        </div>
+                                        <div class="info-item">
+                                          <span class="info-label">${isRTL ? "الرقم القومي:" : "National ID:"}</span>
+                                          <span class="info-val">${patientNationalId}</span>
+                                        </div>
+                                        <div class="info-item">
+                                          <span class="info-label">${isRTL ? "تاريخ الزيارة:" : "Encounter Date:"}</span>
+                                          <span class="info-val">${rec.visitDate}</span>
+                                        </div>
+                                        <div class="info-item">
+                                          <span class="info-label">${isRTL ? "الطبيب المعالج:" : "Consultant Physician:"}</span>
+                                          <span class="info-val">${rec.doctorName}</span>
+                                        </div>
+                                      </div>
+
+                                      <div class="section-title">${isRTL ? "التشخيص الرئيسي المسجل" : "Clinical Diagnosis"}</div>
+                                      <div style="font-size: 14px; font-weight: 800; color: #1e293b; margin-bottom: 20px;">
+                                        ${rec.diagnosis} (ICD-10: ${getIcd10Code(rec.diagnosis)})
+                                      </div>
+
+                                      <div class="notes-card">
+                                        <div class="notes-title">${isRTL ? "الخطة والتعليمات الطبية الموصوفة" : "Clinical Plan & Advice"}</div>
+                                        <div class="notes-content">
+                                          ${rec.doctorInstructions || rec.treatment || (isRTL ? "يرجى اتباع خطة العلاج العامة والراحة التامة." : "General diagnostic follow-up on record.")}
+                                        </div>
+                                      </div>
+
+                                      ${rec.prescription ? `
+                                        <div class="notes-card" style="background-color: #e0f2fe; border-color: #bae6fd;">
+                                          <div class="notes-title" style="color: #0369a1;">${isRTL ? "الوصفة والجرعات العلاجية" : "Prescribed Pharmacotherapy (Rx)"}</div>
+                                          <div class="notes-content" style="color: #0c4a6e; font-weight: 600; white-space: pre-line;">
+                                            ${rec.prescription}
+                                          </div>
+                                        </div>
+                                      ` : ''}
+
+                                      ${rec.notes ? `
+                                        <div class="section-title">${isRTL ? "ملاحظات إضافية" : "Additional Clinical Prognosis Notes"}</div>
+                                        <div style="font-size: 11px; line-height: 1.6; color: #475569; padding: 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+                                          ${rec.notes}
+                                        </div>
+                                      ` : ''}
+
+                                      <div class="footer">
+                                        <span>${isRTL ? "تم إنشاؤه وتوقيعه إلكترونياً لغرض تقديمه لمن يهمه الأمر" : "Generated automatically on behalf of Salamat Network"}</span>
+                                        <span>HASH-CODE: SLP-${rec.id.toUpperCase()}</span>
+                                      </div>
+                                    </div>
+                                  </body>
+                                </html>
+                              `;
+                              executePrintWithIframe(html);
+                            }}
+                            className="p-2 hover:bg-emerald-50 dark:hover:bg-slate-800 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 rounded-xl transition-all cursor-pointer border border-slate-100 dark:border-slate-800 hover:border-emerald-200"
+                            title={isRTL ? "طباعة هذه الإفادة" : "Print this slip"}
+                          >
+                            <Printer size={15} />
+                          </button>
+                          <div className="flex flex-col items-end text-right font-mono self-start sm:self-auto">
+                            <span className="text-[10px] font-black text-slate-800 dark:text-emerald-400">{rec.doctorName}</span>
+                            <span className="text-[8px] font-bold text-slate-400 tracking-tight mt-0.5">{rec.visitDate}</span>
+                          </div>
                         </div>
                       </div>
 
@@ -6416,7 +7415,7 @@ function App() {
                     </div>
 
                     <div className="bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-3 rounded-2xl text-[9px] text-slate-400 font-mono text-left uppercase flex justify-between font-mono font-mono">
-                      <span>{isRTL ? "المصنع:" : "Manufacturer:"} HIMS CO.</span>
+                      <span>{isRTL ? "المصنع:" : "Manufacturer:"} SALAMAT CO.</span>
                       <span>{isRTL ? "موديل:" : "Model:"} Ultima Gen V</span>
                       <span>{isRTL ? "الأبعاد:" : "Matrix:"} 512x512px</span>
                     </div>
@@ -6450,11 +7449,11 @@ function App() {
                     </div>
 
                     <button 
-                      onClick={() => window.print()}
-                      className="w-full bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 text-white font-black text-xs py-3 rounded-2xl flex items-center justify-center gap-2 transition-all cursor-pointer font-sans"
+                      onClick={() => handlePrintMedicalImage(patientSelectedScan)}
+                      className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs py-3 rounded-2xl flex items-center justify-center gap-2 transition-all cursor-pointer font-sans shadow-lg shadow-indigo-600/20"
                     >
-                      <FileDown size={14} />
-                      {isRTL ? "تحميل وطباعة التقرير الطبي" : "Download & Print Report"}
+                      <Printer size={14} />
+                      {isRTL ? "تحميل وطباعة التقرير الفني واللوحة" : "Print Study Report & Image"}
                     </button>
                   </div>
 
@@ -7600,7 +8599,7 @@ function App() {
           </div>
           
           <div style="width: 100%; border-top: 1px dashed #e2e8f0; padding-top: 6px; margin-top: 12px; text-align: center; font-size: 8px; color: #94a3b8; font-family: monospace;">
-            DOCUMENT HASH-SIGNATURE: SHA256-JMC-HIMS-VERIFY-${Math.floor(100000 + Math.random() * 900000)} • CONFIDENTIAL CLASS-A CLINICAL DATA
+            DOCUMENT HASH-SIGNATURE: SHA256-JMC-SALAMAT-VERIFY-${Math.floor(100000 + Math.random() * 900000)} • CONFIDENTIAL CLASS-A CLINICAL DATA
           </div>
         </body>
       </html>
@@ -10136,7 +11135,7 @@ function App() {
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
               {isRTL 
                 ? "شاركنا تجربتك والمشاكل التي تواجهها مع النظام لنتمكن من تحسين جودة الخدمات" 
-                : "Share your experience and any issues you face to help us continuously improve HIMS"}
+                : "Share your experience and any issues you face to help us continuously improve Salamat"}
             </p>
           </div>
         </div>
@@ -10669,34 +11668,34 @@ function App() {
             <img
               src={systemLogo}
               alt="System Logo"
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain"
             />
           ) : activeHospital?.logo_url ? (
             <img
               src={activeHospital.logo_url}
               alt="Logo"
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain"
               referrerPolicy="no-referrer"
             />
           ) : (
             <img
               src="/icon.png"
               alt="System Logo"
-              className="w-full h-full object-cover p-0"
+              className="w-full h-full object-contain p-0"
               referrerPolicy="no-referrer"
             />
           )}
         </div>
         <h2 className="text-5xl font-black text-gray-800 tracking-tighter uppercase leading-none">
-          HIMS Pro
+          Salamat
         </h2>
         <p className="text-gray-400 font-bold uppercase tracking-[0.3em] text-xs">
-          Healthcare Information Management System
+          Salamat Healthcare Information Platform
         </p>
         <div className="max-w-2xl mx-auto text-gray-500 text-lg leading-relaxed">
           {isRTL
             ? "نظام إدارة المعلومات الصحية العالمي المصمم لعمليات المستشفيات الحديثة. يجمع بين إدارة الأصول الطبية، السجلات الإلكترونية، والمخزون الذكي في منصة واحدة مدعومة بالذكاء الاصطناعي."
-            : "The world-class Healthcare Information Management System designed for modern hospital operations. Integrating asset management, EMR, and smart inventory into a single AI-powered platform."}
+            : "The world-class Salamat Healthcare Information Platform designed for modern hospital operations. Integrating asset management, EMR, and smart inventory into a single AI-powered platform."}
         </div>
       </div>
 
@@ -10828,7 +11827,7 @@ function App() {
           <div>
             <h2 className="text-lg font-black text-slate-800 dark:text-slate-100 uppercase tracking-widest flex items-center gap-2">
               <ShieldCheck className="text-emerald-500 text-xl" size={24} />
-              {isRTL ? "مستفيضو النظام والربط التكاملي" : "System Beneficiaries & Integration Path"}
+              {isRTL ? "مستفيدو النظام والربط التكاملي" : "System Beneficiaries & Integration Path"}
             </h2>
             <p className="text-sm text-slate-400 font-semibold mt-1">
               {isRTL ? "كيف يخدم الربط الفوري للأقسام جهات المنظومة المختلفة" : "Mapping value metrics and features across our primary stakeholders"}
@@ -12686,16 +13685,17 @@ function App() {
 
         <div className="space-y-8">
           {/* 1. Backup & Sync */}
-          <div>
-            <h3 className="font-bold text-gray-800 ml-1 mb-4 flex items-center gap-2">
-              <Database className="text-gray-400" size={18} />
-              {isRTL ? "النسخ الاحتياطي السحابي ومزامنة البيانات" : "Cloud Backup & Sync Platform"}
-              <span className="ml-1 px-3 py-0.5 rounded-full bg-blue-50 text-blue-600 flex items-center gap-1 text-[10px] uppercase font-bold tracking-wider border border-blue-100">
-                <Cloud size={10} /> Firebase & Drive
-              </span>
-            </h3>
+          <div className="space-y-6">
+            <div>
+              <h3 className="font-bold text-gray-800 ml-1 mb-4 flex items-center gap-2">
+                <Database className="text-gray-400" size={18} />
+                {isRTL ? "النسخ الاحتياطي السحابي ومزامنة البيانات" : "Cloud Backup & Sync Platform"}
+                <span className="ml-1 px-3 py-0.5 rounded-full bg-blue-50 text-blue-600 flex items-center gap-1 text-[10px] uppercase font-bold tracking-wider border border-blue-100">
+                  <Cloud size={10} /> Firebase & Drive
+                </span>
+              </h3>
 
-            {!firebaseUser ? (
+              {!firebaseUser ? (
               <div className="bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200 rounded-3xl p-6 text-center shadow-sm relative overflow-hidden">
                 <div className="mx-auto w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600 mb-4 border border-blue-100 shadow-sm">
                   <Cloud size={24} className="animate-pulse" />
@@ -12718,7 +13718,7 @@ function App() {
                     <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100 font-bold text-sm">{firebaseUser.email ? firebaseUser.email[0].toUpperCase() : "G"}</div>
                     <div>
                       <div className="flex items-center gap-1.5">
-                        <p className="text-xs font-bold text-gray-800 leading-none">{firebaseUser.displayName || (isRTL ? "مسؤول النظام" : "HIMS Administrator")}</p>
+                        <p className="text-xs font-bold text-gray-800 leading-none">{firebaseUser.displayName || (isRTL ? "مسؤول النظام" : "Salamat Administrator")}</p>
                         <span className="bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border border-emerald-100">{isRTL ? "متصل" : "LIVE"}</span>
                       </div>
                       <p className="text-[10px] text-gray-400 mt-1 font-mono">{firebaseUser.email}</p>
@@ -12758,9 +13758,78 @@ function App() {
                     </div>
                   )}
                 </div>
+
+                {/* Global DB Sync System (Super Admin Only) */}
+                {currentUser?.role === "Super Admin" && (
+                  <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-3xl border border-indigo-100 p-5 space-y-4">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="font-bold text-gray-800 flex items-center gap-2 mb-1">
+                          <RefreshCw className="text-indigo-600" size={18} />
+                          {isRTL ? "مزامنة النظام الشاملة (Cloud-to-AI Studio)" : "Global System Synchronization (Cloud Persistence)"}
+                        </h3>
+                        <p className="text-[11px] text-gray-500 leading-relaxed">
+                          {isRTL 
+                            ? "تحكم في مزامنة ملف قاعدة البيانات (SQLite) مع Firebase لضمان عدم فقد البيانات عند إعادة النشر أو تحديث البيئة." 
+                            : "Control the synchronization of the primary SQLite database with Firebase to prevent data loss during republication or container updates."}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border ${syncStatus?.isFirestoreConnected ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-rose-50 text-rose-600 border-rose-100'}`}>
+                          {syncStatus?.isFirestoreConnected ? (isRTL ? "متصل سحابياً" : "Cloud Connected") : (isRTL ? "غير متصل" : "Offline")}
+                        </span>
+                        {syncStatus?.lastSync && (
+                          <span className="text-[9px] font-bold text-gray-400">
+                            {isRTL ? "آخر مزامنة: " : "Last Sync: "} {new Date(syncStatus.lastSync).toLocaleString()}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <button 
+                        onClick={triggerGlobalSync}
+                        disabled={isTriggeringSync || !syncStatus?.isFirestoreConnected}
+                        className="flex flex-col items-center justify-center p-4 bg-white border border-indigo-100 rounded-2xl shadow-sm hover:shadow-md transition-all active:scale-95 group cursor-pointer disabled:opacity-50"
+                      >
+                        <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-2 group-hover:bg-indigo-600 group-hover:text-white transition-all">
+                          <CloudUpload size={20} className={isTriggeringSync ? "animate-bounce" : ""} />
+                        </div>
+                        <span className="text-[10px] font-black uppercase tracking-wider text-gray-700">{isRTL ? "مزامنة الآن للسحابة" : "Push to Cloud"}</span>
+                      </button>
+
+                      <button 
+                        onClick={triggerGlobalRestore}
+                        disabled={isTriggeringSync || !syncStatus?.isFirestoreConnected}
+                        className="flex flex-col items-center justify-center p-4 bg-white border border-indigo-100 rounded-2xl shadow-sm hover:shadow-md transition-all active:scale-95 group cursor-pointer disabled:opacity-50"
+                      >
+                        <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mb-2 group-hover:bg-amber-600 group-hover:text-white transition-all">
+                          <CloudDownload size={20} className={isTriggeringSync ? "animate-bounce" : ""} />
+                        </div>
+                        <span className="text-[10px] font-black uppercase tracking-wider text-gray-700">{isRTL ? "استعادة من السحابة" : "Pull from Cloud"}</span>
+                      </button>
+                    </div>
+
+                    {syncStatus?.dbSize > 0 && (
+                      <div className="flex items-center gap-2 px-3 py-2 bg-white/50 rounded-xl border border-indigo-50/50">
+                        <Database size={12} className="text-gray-400" />
+                        <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full transition-all duration-500 ${syncStatus.dbSize / (1024*1024) > syncStatus.limitMB * 0.8 ? 'bg-rose-500' : 'bg-indigo-500'}`}
+                            style={{ width: `${Math.min(100, (syncStatus.dbSize / (1024 * 1024 * syncStatus.limitMB)) * 100)}%` }}
+                          ></div>
+                        </div>
+                        <span className="text-[9px] font-bold text-gray-500 font-mono">
+                          {(syncStatus.dbSize / (1024 * 1024)).toFixed(2)}MB / {syncStatus.limitMB}MB
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
+        </div>
 
           <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-5 space-y-4">
             <div>
@@ -12769,7 +13838,31 @@ function App() {
                 {isRTL ? "إعدادات البريد الإلكتروني" : "Email System Settings"}
               </h3>
               <p className="text-xs text-gray-500 mb-4">{isRTL ? "تجربة البريد الالكتروني وإشعارات النظام" : "Test SMTP connections and email dispatchers"}</p>
-              <button type="button" onClick={() => { toast.success(isRTL ? "تم إرسال بريد تجريبي" : "Test email sent successfully") }} className="bg-primary-50 hover:bg-primary-100 text-primary-600 border border-primary-100 px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center gap-2 cursor-pointer">
+              <button 
+                type="button" 
+                onClick={async () => {
+                  const email = currentUser?.email;
+                  if (!email) return toast.error(isRTL ? "البريد الإلكتروني الحالي غير معروف" : "Current user email is unknown");
+                  const promise = (async () => {
+                    const res = await apiFetch("/api/system/test-email", {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json"
+                      },
+                      body: JSON.stringify({ email })
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || "Failed to send test email");
+                    return data.message || (isRTL ? "تم إرسال بريد تجريبي بنجاح" : "Test email sent successfully via SMTP.");
+                  })();
+                  toast.promise(promise, {
+                    loading: isRTL ? "جاري إرسال البريد التجريبي..." : "Sending test email...",
+                    success: (msg) => msg,
+                    error: (err) => err.message || "Error"
+                  });
+                }} 
+                className="bg-primary-50 hover:bg-primary-100 text-primary-600 border border-primary-100 px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center gap-2 cursor-pointer"
+              >
                 <Mail size={14} />
                 {isRTL ? "إرسال بريد تجريبي" : "Send Test Email"}
               </button>
@@ -12787,6 +13880,57 @@ function App() {
                 <Trash2 size={14} />
                 {isRTL ? "مسح الذاكرة المؤقتة (تحديث إجباري)" : "Purge Local Cache"}
               </button>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-5 space-y-4">
+            <div>
+              <h3 className="font-bold text-gray-800 flex items-center gap-2 mb-2">
+                <Sparkles className="text-primary-500 animate-pulse" size={18} />
+                {isRTL ? "تحديثات النظام الفورية (OTA Updates)" : "Instant OTA System Updates"}
+              </h3>
+              <p className="text-xs text-gray-500 mb-4">
+                {isRTL 
+                  ? "البحث عن ميزات جديدة أو إصلاحات وتثبيتها فورياً وتلقائياً للحصول على آخر ميزات سلامات." 
+                  : "Check for instantly deployed application improvements and core optimizations offline."}
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <button 
+                  type="button" 
+                  disabled={checkingForUpdates}
+                  onClick={async () => {
+                    setCheckingForUpdates(true);
+                    if ((window as any).pwaCheckForUpdates) {
+                      const res = await (window as any).pwaCheckForUpdates();
+                      if (res && res.success && !res.updated) {
+                        setCheckingForUpdates(false);
+                      }
+                    } else {
+                      setCheckingForUpdates(false);
+                      toast.error(isRTL ? "ميزة التحديث الفوري غير متوفرة حالياً" : "OTA update feature is not available in current environment");
+                    }
+                  }} 
+                  className="bg-primary-50 hover:bg-primary-100 text-primary-600 border border-primary-100 px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw size={14} className={checkingForUpdates ? "animate-spin" : ""} />
+                  {checkingForUpdates 
+                    ? (isRTL ? "جاري فحص التحديثات..." : "Checking for updates...") 
+                    : (isRTL ? "التحقق من التحديثات" : "Check for Updates")}
+                </button>
+
+                {newWorkerInstance && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      newWorkerInstance.postMessage("SKIP_WAITING");
+                    }}
+                    className="bg-green-50 hover:bg-green-100 text-green-600 border border-green-100 px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center gap-2 cursor-pointer animate-bounce"
+                  >
+                    <Sparkles size={14} />
+                    {isRTL ? "تثبيت التحديث المعلق" : "Apply Pending Update"}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -12899,6 +14043,36 @@ function App() {
                       className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 outline-none text-sm font-medium"
                     />
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-black text-gray-700 uppercase tracking-widest mb-1">
+                    {isRTL
+                      ? "معرف تليغرام (Chat ID)"
+                      : "Telegram Chat ID"}
+                  </label>
+                  <div className="relative">
+                    <Send
+                      size={16}
+                      className="absolute left-3.5 top-3.5 text-blue-500"
+                    />
+                    <input
+                      type="text"
+                      value={profileTelegramId}
+                      onChange={(e) => setProfileTelegramId(e.target.value)}
+                      placeholder={
+                        isRTL
+                          ? "مثال: 123456789"
+                          : "e.g. 123456789"
+                      }
+                      className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium"
+                    />
+                  </div>
+                  <p className="text-[9px] text-gray-400 mt-1">
+                    {isRTL 
+                      ? "أرسل /start إلى بوت تليغرام للحصول على المعرف الخاص بك." 
+                      : "Send /start to our Telegram bot to get your Chat ID."}
+                  </p>
                 </div>
 
                 <div>
@@ -13151,7 +14325,7 @@ function App() {
             </h4>
             <p className="text-[10px] text-gray-500 leading-normal">
               {isRTL
-                ? "عند النقر على التسجيل، سيطلب منك النظام تأكيد هويتك بيومترياً عبر جهازك لربطه مع حسابك الشخصي في HIMS."
+                ? "عند النقر على التسجيل، سيطلب منك النظام تأكيد هويتك بيومترياً عبر جهازك لربطه مع حسابك الشخصي في سلامات."
                 : "Click register to initiate the biometric platform ceremony. Your hardware token will encrypt access to this local device securely."}
             </p>
 
@@ -13452,6 +14626,9 @@ function App() {
                         try {
                           const res = await apiFetch("/api/system/test-email", {
                             method: "POST",
+                            headers: {
+                              "Content-Type": "application/json"
+                            },
                             body: JSON.stringify({ email })
                           });
                           const data = await res.json();
@@ -13608,6 +14785,33 @@ function App() {
       }
     };
 
+    const handleSendPing = async () => {
+      if (!activeChatPart) return;
+      try {
+        playAlertTone("ping");
+        setIsChatShaking(true);
+        setTimeout(() => setIsChatShaking(false), 550);
+        
+        const body = {
+          receiver_id: activeChatPart.id,
+          receiver_name: activeChatPart.name,
+          message: "🚨 PING!!!",
+          sender_name: currentUser?.name || "App User",
+          sender_role: currentUser?.role || "User",
+        };
+        
+        await apiFetch("/api/telehealth/messages", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        
+        fetchTelehealthMessages();
+        toast.success(isRTL ? "تم إرسال تنبيه بنغ!" : "PING sent successfully!");
+      } catch (err) {
+        console.error("SendPingError:", err);
+      }
+    };
+
     const toggleAvailability = async () => {
       if (currentUser?.role !== "Doctor" && currentUser?.role !== "Consultant" && currentUser?.role !== "Super Admin") return;
       
@@ -13633,15 +14837,18 @@ function App() {
     return (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pb-24 h-[650px]">
         {/* Contacts column */}
-        <div className="lg:col-span-4 bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 p-6 flex flex-col shadow-sm overflow-hidden">
-          <div className="mb-6 flex justify-between items-center">
+        <div className="lg:col-span-4 bg-slate-50 dark:bg-slate-950 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 p-5 flex flex-col shadow-inner overflow-hidden">
+          <div className="mb-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <div>
-              <h3 className="text-sm font-black text-slate-800 dark:text-slate-100 uppercase tracking-tight">
+              <h3 className="text-sm font-black text-slate-800 dark:text-slate-100 uppercase tracking-tight flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 animate-pulse" />
                 {isRTL ? "بريد التطبيب عن بعد" : "Telehealth Inbox"}
               </h3>
-              <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">
-                {isRTL ? "تواصل آمن مع طاقمك الطبي" : "Secure Care Messaging"}
-              </p>
+              <div className="flex flex-col gap-0.5 mt-1">
+                <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest mt-1">
+                  {isRTL ? "تواصل آمن ومباشر مع طاقمك الطبي" : "Secure Direct Medical Chat"}
+                </span>
+              </div>
             </div>
             
             {/* Availability Toggle for Doctors */}
@@ -13683,6 +14890,7 @@ function App() {
                 ? ((c as any).specialty || (isRTL ? "استشاري طبي" : "Consultant")) 
                 : (isRTL ? "مريض نشط" : "Active Patient");
               const isOnline = (c as any).availability_status === 'available';
+              const contactPin = (c.id || "00000000").substring(0, 8).toUpperCase();
               
               return (
                 <div
@@ -13705,7 +14913,9 @@ function App() {
                     </div>
                     <div>
                       <h4 className="font-bold text-xs leading-none mb-1 truncate max-w-[120px]">{c.name}</h4>
-                      <p className={`text-[9px] ${isSelected ? "text-slate-400" : "text-slate-500"} font-medium`}>{details}</p>
+                      <div className="flex flex-col gap-0.5">
+                        <p className={`text-[9px] ${isSelected ? "text-slate-300" : "text-slate-500"} font-medium mt-0.5`}>{details}</p>
+                      </div>
                     </div>
                   </div>
                   {isSelected && (
@@ -13722,19 +14932,27 @@ function App() {
           {activeChatPart ? (
             <>
               {/* Header */}
-              <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 mb-4">
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 mb-4 bg-slate-100/40 dark:bg-slate-800/40 -mx-6 -mt-6 p-6 rounded-t-[2.5rem] shadow-sm">
                 <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400 font-black rounded-[1.2rem] flex items-center justify-center text-sm shadow-inner">
+                  <div className="w-12 h-12 bg-slate-900 text-white font-black rounded-2xl flex items-center justify-center text-sm shadow-md border border-slate-200 dark:border-slate-700">
                     {(activeChatPart.name || "U")[0]}
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="font-black text-sm text-slate-800 dark:text-slate-100 leading-none">{activeChatPart.name}</h3>
-                      <div className={`w-2 h-2 rounded-full ${(activeChatPart as any).availability_status === 'available' ? "bg-emerald-500" : "bg-slate-300"}`} />
                     </div>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-1">
-                      {isPatient ? ((activeChatPart as any).specialty || "Medical Specialist") : (isRTL ? "سجل المريض النشط" : "Active Clinical Subject")}
-                    </p>
+                    <div className="flex items-center gap-1.5 mt-1.5">
+                      <div className={`w-2.5 h-2.5 rounded-full border border-white dark:border-slate-900 ${(activeChatPart as any).availability_status === 'available' ? "bg-emerald-500 shadow-sm shadow-emerald-500/50 animate-pulse" : "bg-slate-300"}`} />
+                      <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        {(activeChatPart as any).availability_status === 'available' 
+                          ? (isRTL ? "متصل - متاح" : "Online - Available") 
+                          : (isRTL ? "غير متصل - مشغول" : "Offline - Busy")}
+                      </span>
+                      <span className="text-slate-300 dark:text-slate-700 font-bold">•</span>
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tight">
+                        {isPatient ? ((activeChatPart as any).specialty || "Medical Specialist") : (isRTL ? "سجل المريض النشط" : "Active Clinical Subject")}
+                      </p>
+                    </div>
                   </div>
                 </div>
                 
@@ -13798,7 +15016,13 @@ function App() {
               )}
               
               {/* Messages Body */}
-              <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-1 scroll-smooth custom-scrollbar p-2">
+              <div 
+                className={`flex-1 overflow-y-auto space-y-4 mb-4 pr-1 scroll-smooth custom-scrollbar p-3 transition-all duration-300 rounded-[2rem] ${
+                  isChatShaking 
+                    ? "animate-bounce border-2 border-rose-500 bg-rose-50/20 shadow-lg shadow-rose-500/10" 
+                    : ""
+                }`}
+              >
                 {activeMessages.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center p-8">
                     <div className="w-16 h-16 bg-slate-50 dark:bg-slate-800 rounded-3xl flex items-center justify-center text-slate-200 dark:text-slate-700 mb-4">
@@ -13815,6 +15039,11 @@ function App() {
                   activeMessages.map((m) => {
                     const isOwn = m.sender_id === currentUser.id;
                     const dateFormatted = m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "";
+                    
+                    // Standard checkmark status: within 6 seconds = Delivered (✓), older than 6 seconds = Read (✓✓)
+                    const isRecent = m.timestamp ? (Date.now() - new Date(m.timestamp).getTime() < 6000) : true;
+                    const isPing = m.message.includes("PING!!!");
+
                     return (
                       <motion.div 
                         initial={{ opacity: 0, x: isOwn ? 10 : -10 }}
@@ -13822,18 +15051,30 @@ function App() {
                         key={m.id} 
                         className={`flex ${isOwn ? "justify-end" : "justify-start"}`}
                       >
-                        <div className={`max-w-[80%] p-4 rounded-3xl text-xs relative ${
+                        <div className={`max-w-[80%] p-4 rounded-2xl text-xs relative ${
                           isOwn 
-                            ? "bg-slate-900 dark:bg-primary-600 text-white rounded-tr-none shadow-lg shadow-black/5" 
-                            : "bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-none border border-slate-200 dark:border-slate-700"
+                            ? isPing
+                              ? "bg-rose-600 text-white rounded-tr-none shadow-lg shadow-rose-600/30 font-black"
+                              : "bg-indigo-600 dark:bg-indigo-700 text-white rounded-tr-none shadow-lg shadow-indigo-500/10" 
+                            : isPing
+                              ? "bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-200 rounded-tl-none border border-rose-300 dark:border-rose-900 font-black animate-pulse"
+                              : "bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-none border border-slate-200/60 dark:border-slate-700"
                         }`}>
                           {!isOwn && (
-                            <p className="text-[9px] font-black uppercase tracking-tighter opacity-50 mb-1">{m.sender_name}</p>
+                            <div className="flex items-center gap-1.5 mb-1.5">
+                              <p className="text-[9px] font-black uppercase tracking-tighter opacity-70">{m.sender_name}</p>
+                            </div>
                           )}
                           <p className="whitespace-pre-line leading-relaxed font-semibold text-[11px]">{m.message}</p>
-                          <div className={`text-[8px] mt-2 font-black uppercase opacity-40 flex items-center gap-1 ${isOwn ? "justify-end" : "justify-start"}`}>
+                          <div className={`text-[8px] mt-2 font-black uppercase opacity-60 flex items-center gap-1.5 ${isOwn ? "justify-end" : "justify-start"}`}>
                             <Clock size={8} />
                             {dateFormatted}
+                            
+                            {isOwn && (
+                              <span className="text-[10px] font-mono font-black ml-1 select-none flex items-center justify-center opacity-70" title={isRecent ? "Delivered" : "Read"}>
+                                {isRecent ? "✓" : "✓✓"}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </motion.div>
@@ -13843,24 +15084,38 @@ function App() {
               </div>
               
               {/* Message Composer */}
-              <form onSubmit={handleSendMessage} className="flex gap-2 shrink-0 border-t border-slate-100 dark:border-slate-800 pt-5">
-                <div className="flex-1 relative">
-                  <input 
-                    type="text"
-                    placeholder={isRTL ? "اكتب رسالتك الطبية هنا..." : "Type your clinical inquiry..."}
-                    value={typedMsg}
-                    onChange={e => setTypedMsg(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-800 rounded-2xl px-5 py-3.5 text-xs text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none border border-slate-100 dark:border-slate-700 transition-all font-semibold shadow-inner"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  disabled={!typedMsg.trim()}
-                  className="bg-slate-900 dark:bg-primary-600 text-white font-black uppercase tracking-widest text-[10px] px-6 py-3.5 rounded-2xl hover:bg-slate-800 dark:hover:bg-primary-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-md active:scale-95"
-                >
-                  <Send size={16} />
-                </button>
-              </form>
+              <div className="flex flex-col gap-2 shrink-0 border-t border-slate-100 dark:border-slate-800 pt-5">
+                <form onSubmit={handleSendMessage} className="flex gap-2 w-full">
+                  <button
+                    type="button"
+                    onClick={handleSendPing}
+                    className="bg-rose-600 hover:bg-rose-500 text-white font-black px-4 rounded-2xl transition-all shadow-lg shadow-rose-600/20 text-[10px] uppercase tracking-widest active:scale-95 flex items-center justify-center gap-1.5 shrink-0"
+                    title={isRTL ? "إرسال تنبيه!" : "Send Urgent Alert!"}
+                  >
+                    <Bell size={14} className="animate-bounce" />
+                    <span>{isRTL ? "تنبيه" : "ALERT"}</span>
+                  </button>
+                  
+                  <div className="flex-1 relative">
+                    <input 
+                      type="text"
+                      placeholder={isRTL ? "اكتب رسالتك الطبية هنا..." : "Type your clinical inquiry..."}
+                      value={typedMsg}
+                      onChange={e => setTypedMsg(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-slate-800 rounded-2xl px-5 py-3.5 text-xs text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none border border-slate-100 dark:border-slate-700 transition-all font-semibold shadow-inner"
+                    />
+                  </div>
+                  
+                  <button
+                    type="submit"
+                    disabled={!typedMsg.trim()}
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-black uppercase tracking-widest text-[10px] px-6 py-3.5 rounded-2xl disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-md active:scale-95 flex items-center gap-1.5"
+                  >
+                    <Send size={14} />
+                    <span>{isRTL ? "إرسال" : "Send"}</span>
+                  </button>
+                </form>
+              </div>
             </>
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-center p-8">
@@ -14727,7 +15982,7 @@ function App() {
       );
     } catch (err: any) {
       console.error(err);
-      toast.error(err.message || "Failed to call HIMS AI Engine.");
+      toast.error(err.message || "Failed to call Salamat AI Engine.");
       setAiDiagnosisResult(
         isRTL
           ? "⚠️ فشل الاتصال بمحرك الذكاء الاصطناعي. يرجى التحقق من إعدادات مفتاح GEMINI_API_KEY."
@@ -14785,7 +16040,7 @@ function App() {
             studyDate: new Date().toISOString().substring(0, 10),
             studyTime: new Date().toTimeString().split(" ")[0],
             description: desc,
-            institution: "HIMS Imaging & Radiology Suite",
+            institution: "Salamat Imaging & Radiology Suite",
             refPhysician: "Dr. Automated Scanner",
             slicesCount:
               acqModality === "CT" ? 128 : acqModality === "MR" ? 64 : 1,
@@ -14823,7 +16078,7 @@ function App() {
       studyDate: "2026-05-28",
       studyTime: "13:16:08",
       description: `UPLOADED MEDICAL DCM FILE #${idx + 1}`,
-      institution: "HIMS Terminal Console",
+      institution: "Salamat Terminal Console",
       refPhysician: "Staff Physician",
       slicesCount: 1,
       windowCenter: 400,
@@ -19933,7 +21188,7 @@ function App() {
         slicesCount: 1,
         windowCenter: uploadImagingModality === "DX" ? 127 : 400,
         windowWidth: uploadImagingModality === "DX" ? 255 : 1500,
-        manufacturer: "HIMS Portal Uploader Node",
+        manufacturer: "Salamat Portal Uploader Node",
         deviceModel: "Operational Interface Importer",
         transferSyntax: "Isotropic 2D Pixel Array Data Stream",
         severity: "NORMAL" as const,
@@ -20155,13 +21410,13 @@ function App() {
         studyDate: new Date().toISOString().substring(0, 10),
         studyTime: new Date().toTimeString().split(" ")[0],
         description: `${order.modality} ${order.region.toUpperCase()}`,
-        institution: "HIMS Portal Imaging Suite",
+        institution: "Salamat Portal Imaging Suite",
         refPhysician: "Dr. Diagnostic Portal",
         slicesCount:
           order.modality === "CT" ? 128 : order.modality === "MR" ? 64 : 1,
         windowCenter: order.modality === "DX" ? 400 : 80,
         windowWidth: order.modality === "DX" ? 1500 : 350,
-        manufacturer: "HIMS BIOSYSTEMS CORE",
+        manufacturer: "Salamat BIOSYSTEMS CORE",
         deviceModel: "Ultima Gen V",
         transferSyntax: "Isotropic live scanner streaming buffer format",
         severity:
@@ -21533,6 +22788,10 @@ function App() {
                         p.name.toLowerCase().includes(lowerTerm) ||
                         (p.nationalId &&
                           p.nationalId.toLowerCase().includes(lowerTerm)) ||
+                        (p.bloodType &&
+                          p.bloodType.toLowerCase().includes(lowerTerm)) ||
+                        (p.address &&
+                          p.address.toLowerCase().includes(lowerTerm)) ||
                         p.contactNumber.toLowerCase().includes(lowerTerm)
                       );
                     })
@@ -21751,6 +23010,18 @@ function App() {
                                 <Printer size={14} className="text-indigo-500" />
                               </button>
                             </>
+                          )}
+                          {hasPermission("edit", "patient") && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openModal("patient", p);
+                              }}
+                              className="p-2 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 rounded-xl transition-all shadow-sm bg-white border border-slate-100"
+                              title={isRTL ? "تعديل بيانات المريض" : "Edit Patient Data"}
+                            >
+                              <Edit size={14} />
+                            </button>
                           )}
                           {hasPermission("delete", "patient") && (
                             <button
@@ -22816,7 +24087,7 @@ function App() {
             <div>
               <div className="flex items-center gap-3 mb-2.5">
                 <span className="bg-primary-500/20 text-primary-400 border border-primary-500/30 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest block w-fit">
-                  {isRTL ? "مركز إدارة وتكامل الأقسام" : "HIMS Core Department Integration"}
+                  {isRTL ? "مركز إدارة وتكامل الأقسام" : "Salamat Core Department Integration"}
                 </span>
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{isRTL ? "مزامنة تفصيلية" : "Real-time sync"}</span>
@@ -22910,7 +24181,7 @@ function App() {
             <div className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col justify-between">
               <div>
                 <h3 className="text-base font-black text-slate-800 dark:text-slate-100 uppercase tracking-tight mb-2 flex items-center gap-2">
-                  <User font-black size={16} className="text-primary-500" />
+                  <User size={16} className="text-primary-500" />
                   {isRTL ? "تحديد المريض المعني بالربط" : "Core Patient Sync Hook"}
                 </h3>
                 <p className="text-[11px] text-slate-400 font-bold leading-relaxed mb-4 uppercase">
@@ -24753,7 +26024,7 @@ function App() {
       setEditingHrUser(u);
       setEditingHrSalary(u.salary ? u.salary.toString() : "4800");
       setEditingHrContract(u.contract_type || "Full-time");
-      setEditingHrBank(u.bank_account || "US-98-HIMS-BANK-88301");
+      setEditingHrBank(u.bank_account || "US-98-SALAMAT-BANK-88301");
       setEditingHrNationalId(u.national_id || "ID-391-209-4");
     };
 
@@ -26542,6 +27813,26 @@ function App() {
     );
   };
 
+  const handleAutoLinkTelegram = async (type: 'user' | 'patient', id?: string) => {
+    if (!id) {
+      alert(isRTL ? "يرجى حفظ السجل أولاً قبل الربط بتليغرام" : "Please save the record first before linking Telegram");
+      return;
+    }
+    try {
+      const res = await apiFetch("/api/system/telegram-bot");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.username) {
+          window.open(`https://t.me/${data.username}?start=${type}_${id}`, '_blank');
+        } else {
+          alert("Bot username not configured");
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const renderModal = () => {
     if (!isModalOpen) return null;
 
@@ -26565,7 +27856,7 @@ function App() {
                 {modalType === "changePassword"
                   ? "Manage Account"
                   : modalType === "verifyPhone"
-                    ? "Verify Phone"
+                    ? "Verify Email"
                     : editingItem
                       ? t[
                           `edit${modalType.charAt(0).toUpperCase() + modalType.slice(1)}` as keyof typeof t
@@ -26589,7 +27880,7 @@ function App() {
                     <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-3">
                       <CheckCircle size={32} />
                     </div>
-                    <h3 className="font-bold text-gray-800">{t.verifyPhone}</h3>
+                    <h3 className="font-bold text-gray-800">{t.verifyEmail || "Verify Email"}</h3>
                     <p className="text-sm text-gray-500 mt-1">
                       {editingItem?.name}
                     </p>
@@ -26600,12 +27891,13 @@ function App() {
                     <div className="flex flex-col gap-3">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                          {t.phone}
+                          Email
                         </label>
                         <input
                           value={verifyingPhone}
                           onChange={(e) => setVerifyingPhone(e.target.value)}
                           required
+                          type="email"
                           className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 outline-none text-center"
                           dir="ltr"
                         />
@@ -26615,11 +27907,11 @@ function App() {
                           <input
                             type="radio"
                             name="verifyChannel"
-                            value="sms"
+                            value="email"
                             defaultChecked
                           />
                           <span className="text-sm font-medium text-gray-700">
-                            SMS
+                            Email
                           </span>
                         </label>
                       </div>
@@ -26630,7 +27922,7 @@ function App() {
                               document.querySelector(
                                 'input[name="verifyChannel"]:checked',
                               ) as HTMLInputElement
-                            )?.value || "sms";
+                            )?.value || "email";
                           try {
                             const res = await apiFetch("/api/verify/send", {
                               method: "POST",
@@ -26677,7 +27969,7 @@ function App() {
                                 userId: editingItem?.id,
                                 phone: verifyingPhone,
                                 code: verificationCode,
-                                channel: "sms", 
+                                channel: "email", 
                               }),
                             });
                             if (res.ok) {
@@ -28244,9 +29536,16 @@ function App() {
                                 name="nationalId"
                                 defaultValue={editingItem?.nationalId}
                                 required
+                                pattern="\d{11}"
+                                title={isRTL ? "يجب أن يتكون الرقم الوطني من 11 رقماً" : "National ID must be 11 digits"}
+                                onChange={(e) => {
+                                  if (editingItem && e.target.value !== editingItem.nationalId) {
+                                    toast.warning(isRTL ? "تحذير: قد تفقد سجلك الطبي عند تغيير الرقم الوطني" : "Warning: You may lose your medical record when changing the National ID");
+                                  }
+                                }}
                                 className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 outline-none font-bold"
                                 placeholder={
-                                  isRTL ? "أدخل الرقم الوطني" : "Enter National ID"
+                                  isRTL ? "أدخل الرقم الوطني (11 رقماً)" : "Enter National ID (11 digits)"
                                 }
                               />
                             </div>
@@ -28264,7 +29563,7 @@ function App() {
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
                               {t.email}
@@ -28292,6 +29591,22 @@ function App() {
                                     : "Leave empty to keep old"
                                   : "..."
                               }
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1 flex justify-between items-center">
+                              <span>{isRTL ? "معرف تليغرام" : "Telegram Chat ID"}</span>
+                              {editingItem && (
+                                <button type="button" onClick={() => handleAutoLinkTelegram('user', editingItem.id)} className="text-primary-600 hover:text-primary-800 text-[10px] uppercase font-bold tracking-wider flex items-center gap-1 bg-primary-50 px-2 py-0.5 rounded-md">
+                                  <Send size={10} /> {isRTL ? "جلب تلقائي" : "Auto-Link"}
+                                </button>
+                              )}
+                            </label>
+                            <input
+                              name="telegram_chat_id"
+                              defaultValue={editingItem?.telegram_chat_id}
+                              className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 outline-none"
+                              placeholder={isRTL ? "أدخل المعرف أو انقر جلب تلقائي" : "Enter ID or click Auto-Link"}
                             />
                           </div>
                         </div>
@@ -29261,7 +30576,7 @@ function App() {
                                             ctx.font = "bold 20px monospace";
                                             ctx.fillText(
                                               billingCheckBank ||
-                                                "HIMS CENTRAL BANK",
+                                                "SALAMAT CENTRAL BANK",
                                               30,
                                               45,
                                             );
@@ -30711,6 +32026,22 @@ function App() {
                                     ))}
                                   </select>
                                 </div>
+                                <div className="space-y-1.5">
+                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex justify-between items-center">
+                                    <span>{isRTL ? "معرف تليغرام" : "Telegram Chat ID"}</span>
+                                    {editingItem && (
+                                      <button type="button" onClick={() => handleAutoLinkTelegram('patient', editingItem.id)} className="text-primary-600 hover:text-primary-800 text-[9px] uppercase font-bold tracking-widest flex items-center gap-1 bg-primary-50 px-2 py-0.5 rounded-md">
+                                        <Send size={10} /> {isRTL ? "جلب تلقائي" : "Auto-Link"}
+                                      </button>
+                                    )}
+                                  </label>
+                                  <input
+                                    name="telegram_chat_id"
+                                    defaultValue={editingItem?.telegram_chat_id}
+                                    className="w-full p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl focus:ring-2 focus:ring-primary-500 outline-none text-sm font-bold"
+                                    placeholder={isRTL ? "أدخل المعرف أو انقر جلب تلقائي" : "Enter ID or click Auto-Link"}
+                                  />
+                                </div>
                               </div>
                             </div>
 
@@ -30737,6 +32068,7 @@ function App() {
                                         type="button"
                                         onClick={async () => {
                                           try {
+                                            const emailToVerify = (document.querySelector('input[name="email"]') as HTMLInputElement)?.value || verifyingPhone;
                                             const res = await apiFetch(
                                               "/api/verify/send",
                                               {
@@ -30746,7 +32078,8 @@ function App() {
                                                     "application/json",
                                                 },
                                                 body: JSON.stringify({
-                                                  phone: verifyingPhone,
+                                                  phone: emailToVerify,
+                                                  channel: "email"
                                                 }),
                                               },
                                             );
@@ -30763,7 +32096,7 @@ function App() {
                                         }}
                                         className="bg-emerald-50 text-emerald-700 font-black px-4 py-3.5 rounded-2xl text-[10px] uppercase tracking-widest hover:bg-emerald-100 transition shadow-sm border border-emerald-100"
                                       >
-                                        SMS
+                                        Email Code
                                       </button>
                                       {currentUser.role === "Admin" && (
                                         <button
@@ -30801,6 +32134,7 @@ function App() {
                                     type="button"
                                     onClick={async () => {
                                       try {
+                                        const emailToVerify = (document.querySelector('input[name="email"]') as HTMLInputElement)?.value || verifyingPhone;
                                         const res = await apiFetch(
                                           "/api/verify/confirm",
                                           {
@@ -30811,8 +32145,9 @@ function App() {
                                             },
                                             body: JSON.stringify({
                                               userId: editingItem?.id || "new",
-                                              phone: verifyingPhone,
+                                              phone: emailToVerify,
                                               code: verificationCode,
+                                              channel: "email"
                                             }),
                                           },
                                         );
@@ -31919,8 +33254,8 @@ function App() {
                     className={`text-[10px] font-black tracking-[0.2em] uppercase ${isDarkModeLocal ? "text-slate-500" : "text-slate-400"}`}
                   >
                     {isRTL
-                      ? "محرك المزامنة الفوري HIMS"
-                      : "HIMS Core Sync Strategy"}
+                      ? "محرك المزامنة الفوري سلامات"
+                      : "Salamat Core Sync Strategy"}
                   </p>
                 </div>
               </div>
@@ -32324,13 +33659,13 @@ function App() {
           <div className="space-y-4 text-left rtl:text-right">
             <h4 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-wider">
               {isRTL
-                ? "مقدمة عن نظام HIMS Pro"
-                : "Welcome to HIMS Pro Platform"}
+                ? "مقدمة عن نظام سلامات المطور (Salamat)"
+                : "Welcome to Salamat Platform"}
             </h4>
             <p className="text-xs text-gray-500 dark:text-gray-405 leading-relaxed font-sans">
               {isRTL
-                ? "مرحباً بك في نظام HIMS Pro المتكامل لإدارة المعلومات الصحية والمستشفيات الحديثة. يجمع هذا النظام بين التميز السريري، والكفاءة التشغيلية، وصيانة الأجهزة الطبية الحيوية، وإدارة السدادات المالية وحوكمة المستشفى بأحدث تقنيات وبنية تحتية موثوقة لحفظ السجلات الطبية بكفاءة وأمان."
-                : "HIMS Pro is an interactive, unified health services and hospital management engine. Built with extreme functional elegance, it links clinical EMR, digital diagnostic analysis (PACS), smart billing, bank cheque collection networks, and automated biomedical CMMS assets into a safe cloud-synchronized ledger."}
+                ? "مرحباً بك في نظام سلامات المتكامل لإدارة المعلومات الصحية والمستشفيات الحديثة. يجمع هذا النظام بين التميز السريري، والكفاءة التشغيلية، وصيانة الأجهزة الطبية الحيوية، وإدارة السدادات المالية وحوكمة المستشفى بأحدث تقنيات وبنية تحتية موثوقة لحفظ السجلات الطبية بكفاءة وأمان."
+                : "Salamat is an interactive, unified health services and hospital management engine. Built with extreme functional elegance, it links clinical EMR, digital diagnostic analysis (PACS), smart billing, bank cheque collection networks, and automated biomedical CMMS assets into a safe cloud-synchronized ledger."}
             </p>
             <div className="p-4 bg-primary-50 dark:bg-slate-800/80 rounded-2xl border border-primary-100/35">
               <p className="text-[11px] font-bold text-primary-700 dark:text-primary-300 leading-relaxed">
@@ -32597,7 +33932,7 @@ function App() {
             <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
               {isRTL
                 ? "يدعم النظام معايير HL7 و FHIR لضمان إمكانية نقل السجلات الطبية بين المستشفيات المختلفة بأمان وكفاءة عالية."
-                : "HIMS Pro adheres to global HL7 and FHIR standards, enabling robust patient health information exchange between network clinics."}
+                : "Salamat adheres to global HL7 and FHIR standards, enabling robust patient health information exchange between network clinics."}
             </p>
           </div>
         ),
@@ -32638,7 +33973,7 @@ function App() {
                   <h3 className="text-xl font-black text-gray-800 dark:text-white uppercase tracking-tight leading-none mb-1.5">
                     {isRTL
                       ? "دليل مستخدم النظام التفاعلي"
-                      : "HIMS Operational User Manual"}
+                      : "Salamat Operational User Manual"}
                   </h3>
                   <p className="text-[9px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest leading-none">
                     {isRTL
@@ -32748,10 +34083,10 @@ function App() {
             )}
             <h2 className="text-2xl font-black uppercase tracking-tight text-blue-900 mb-2">
               {hospitals.find((h) => h.id === activeHospitalId)?.name ||
-                "HIMS Gateway"}
+                "Salamat Gateway"}
             </h2>
             <h1 className="text-xl font-bold uppercase tracking-tighter mb-2">
-              HIMS Pro - Smart System Manual
+              Salamat - Smart System Manual
             </h1>
             <p className="text-xs uppercase tracking-widest font-bold text-gray-500">
               Official Compliance &amp; Operational Practice Blueprint • Built
@@ -32781,7 +34116,7 @@ function App() {
 
           <div className="text-center pt-8 border-t border-gray-200 mt-12">
             <p className="text-[9px] font-black uppercase tracking-wider text-gray-400">
-              Protected &amp; Encrypted with HIMS Security Ledger Framework
+              Protected &amp; Encrypted with Salamat Security Ledger Framework
             </p>
             <p className="text-[8px] font-mono text-gray-400">
               Document Hash reference: 0x98A5BC0D9E923CDE • Confidential to
@@ -32929,6 +34264,103 @@ function App() {
           </div>
         </motion.div>
       </div>
+    );
+  };
+
+  const renderOtaUpdateModal = () => {
+    if (!showUpdateModal || !newWorkerInstance) return null;
+
+    return (
+      <AnimatePresence>
+        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md animate-in fade-in duration-300">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0, y: 30 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.9, opacity: 0, y: 30 }}
+            transition={{ type: "spring", duration: 0.5 }}
+            className={`bg-white dark:bg-slate-900 w-full max-w-lg rounded-[2.5rem] overflow-hidden shadow-2xl border border-slate-100 dark:border-slate-800 p-8 ${isRTL ? "text-right" : "text-left"}`}
+          >
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-14 h-14 bg-gradient-to-tr from-sky-500 to-indigo-500 rounded-2xl flex items-center justify-center shadow-lg shadow-sky-200 dark:shadow-none shrink-0">
+                <Sparkles className="text-white animate-pulse" size={26} />
+              </div>
+              <div>
+                <h2 className="text-xl font-black text-slate-800 dark:text-white leading-tight">
+                  {isRTL ? "تحديث جديد لنظام سلامات! ✨" : "New Salamat System Update! ✨"}
+                </h2>
+                <span className="text-[10px] font-black uppercase tracking-widest text-primary-500">
+                  {isRTL ? "تثبيت فوري متوفر (OTA UPDATE)" : "IMMEDIATE OFFLINE INSTALL AVAILABLE"}
+                </span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-6">
+            {isRTL 
+                ? "تم إرسال ونشر تحديث فوري جديد للنظام. ننصح بتثبيته الآن للحصول على أفضل أداء واستقرار لجميع الخدمات الطبية والمزامنة."
+                : "An offline-first instant OTA update has been dispatched. Applying this update ensures the highest level of performance, security, and connection stability for Salamat."}
+            </p>
+
+            <div className="space-y-4 mb-8">
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 flex items-start gap-3">
+                <div className="w-2 h-2 rounded-full bg-primary-500 mt-1.5 shrink-0" />
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    {isRTL ? "إشعارات البريد واستقرار SMTP" : "Email & SMTP Notifications Stability"}
+                  </h4>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    {isRTL ? "تحسين موثوقية إرسال البريد الإلكتروني وإشعارات النظام." : "Enhanced reliability and fallback logic for all transactional email system settings."}
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 flex items-start gap-3">
+                <div className="w-2 h-2 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    {isRTL ? "اسم وهوية التطبيق الجديدة" : "Brand Identity & Naming"}
+                  </h4>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    {isRTL ? "تحديث كامل لهوية تطبيق سلامات (Salamat) على الهواتف والأجهزة اللوحية." : "Full synchronization of the newly branded 'Salamat' application interface across mobile devices."}
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 flex items-start gap-3">
+                <div className="w-2 h-2 rounded-full bg-violet-500 mt-1.5 shrink-0" />
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    {isRTL ? "سرعة النظام والاستجابة" : "System Response & Loading Time"}
+                  </h4>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    {isRTL ? "تسريع واجهة المستخدم وتحسين التخزين المؤقت المحلي للعمل دون اتصال بالشبكة." : "Faster loading speeds, reduced bandwidth consumption, and enhanced PWA caching."}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  newWorkerInstance.postMessage("SKIP_WAITING");
+                }}
+                className="flex-1 py-3.5 px-6 bg-gradient-to-r from-primary-500 to-indigo-600 hover:from-primary-600 hover:to-indigo-700 text-white font-black text-xs uppercase tracking-wider rounded-2xl transition-all active:scale-[0.98] shadow-lg shadow-primary-500/20 flex items-center justify-center gap-2"
+              >
+                <RefreshCw size={14} className="animate-spin" />
+                {isRTL ? "تحديث وإعادة تشغيل" : "Update & Restart Now"}
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => setShowUpdateModal(false)}
+                className="py-3.5 px-6 bg-slate-50 hover:bg-slate-100 text-slate-500 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 font-bold text-xs uppercase rounded-2xl transition-all active:scale-[0.98]"
+              >
+                {isRTL ? "لاحقاً" : "Remind Me Later"}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      </AnimatePresence>
     );
   };
 
@@ -33212,8 +34644,8 @@ function App() {
                     />
                     <p className="text-[10px] font-black uppercase tracking-widest leading-none mb-2 text-primary-600">
                       {isRTL
-                        ? "محرك البحث الذكي لنظام HIMS"
-                        : "HIMS Unified Intelligent Search"}
+                        ? "محرك البحث الذكي لنظام سلامات"
+                        : "Salamat Unified Intelligent Search"}
                     </p>
                     <div className="flex flex-wrap justify-center gap-4 mt-6">
                       <div className="flex flex-col items-center gap-1">
@@ -33446,6 +34878,7 @@ function App() {
     { id: "telehealth", icon: MessageSquare, label: isRTL ? "التطبيب عن بعد" : "Telehealth Chat" },
     { id: "feedback", icon: HeartHandshake, label: isRTL ? "الشكاوى والمقترحات" : "Complaints & Suggestions" },
     { id: "settings", icon: Settings, label: isRTL ? "إعدادات الحساب" : "My Account" },
+    { id: "about", icon: Info, label: isRTL ? "عن النظام" : "About System" },
   ] : [
     { id: "dashboard", icon: LayoutGrid, label: t.dashboard },
     {
@@ -33466,7 +34899,7 @@ function App() {
     {
       id: "departments",
       icon: Warehouse,
-      label: isRTL ? "الأقسام والمنشآت الأساسية" : "Core HIMS Divisions",
+      label: isRTL ? "الأقسام والمنشآت الأساسية" : "Core Salamat Divisions",
     },
     {
       id: "emr",
@@ -33534,7 +34967,7 @@ function App() {
 
     // 1. Patient Interface
     if (role === "Patient") {
-      return ["dashboard", "telehealth", "feedback", "settings"].includes(item.id);
+      return ["dashboard", "telehealth", "feedback", "settings", "about"].includes(item.id);
     }
 
     // 2. Jakel Company Exclusive Interface (Super Admin)
@@ -33795,7 +35228,7 @@ function App() {
                     const activeHospital = hospitals.find(
                       (h) => h.id === activeHospitalId,
                     );
-                    const hospitalName = activeHospital?.name || "HIMS Label";
+                    const hospitalName = activeHospital?.name || "Salamat Label";
 
                     return `
                     <div style="text-align: center; font-family: monospace; display: inline-block; width: 45%; margin: 2%; border: 1px dashed #ccc; padding: 20px; box-sizing: border-box; page-break-inside: avoid;">
@@ -33894,7 +35327,7 @@ function App() {
               </h3>
 
               <p className="text-gray-400 dark:text-gray-500 text-[10px] font-bold uppercase tracking-widest mt-1 mb-6">
-                HIMS GATEWAY SECURITY OVERLAY
+                SALAMAT GATEWAY SECURITY OVERLAY
               </p>
 
               <div className="p-4 rounded-2xl bg-gray-50 dark:bg-slate-950 border border-gray-100 dark:border-slate-800 mb-8">
@@ -33970,7 +35403,7 @@ function App() {
                 : "text-gray-500 hover:text-gray-750"
             }`}
           >
-            🏢 {isRTL ? "بوابة الكادر الطبي" : "Staff HIMS"}
+            🏢 {isRTL ? "بوابة الكادر الطبي" : "Staff Portal"}
           </button>
           <button
             type="button"
@@ -34007,20 +35440,20 @@ function App() {
                 <img
                   src={systemLogo}
                   alt="System Logo"
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-contain"
                 />
               ) : activeHospital?.logo_url ? (
                 <img
                   src={activeHospital.logo_url}
                   alt="Logo"
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-contain"
                   referrerPolicy="no-referrer"
                 />
               ) : (
                 <img
                   src="/icon.png"
                   alt="System Logo"
-                  className="w-full h-full object-cover p-0"
+                  className="w-full h-full object-contain p-0"
                   referrerPolicy="no-referrer"
                 />
               )}
@@ -34159,8 +35592,66 @@ function App() {
                         type="text"
                         value={rgNationalId}
                         onChange={(e) => setRgNationalId(e.target.value)}
-                        placeholder="100..."
-                        className="w-full px-2 py-3 bg-gray-50/80 border border-gray-100 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-bold text-xs"
+                        required
+                        minLength={11}
+                        placeholder="11 digits..."
+                        className="w-full px-2 py-3 bg-gray-50/80 border border-gray-100 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none font-bold text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] font-black text-emerald-850 uppercase tracking-widest ml-1 mb-1">
+                      {isRTL ? "نوع الزيارة / الإقامة" : "Admission / Visit Type"}
+                    </label>
+                    <select
+                      value={rgVisitType}
+                      onChange={(e) => setRgVisitType(e.target.value)}
+                      className="w-full px-4 py-3 bg-gray-50/80 border border-gray-100 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-bold text-xs"
+                    >
+                      <option value="outpatient">{isRTL ? "عيادة خارجية" : "Out-Patient"}</option>
+                      <option value="inpatient">{isRTL ? "تنويم داخلي" : "In-Patient Admission"}</option>
+                      <option value="emergency">{isRTL ? "طوارئ وحوادث" : "Emergency"}</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] font-black text-emerald-850 uppercase tracking-widest ml-1 mb-1">
+                      {isRTL ? "العنوان السكني" : "Physical Address"}
+                    </label>
+                    <input
+                      type="text"
+                      value={rgAddress}
+                      onChange={(e) => setRgAddress(e.target.value)}
+                      required
+                      placeholder="e.g. Airport Rd, Khartoum"
+                      className="w-full px-4 py-3 bg-gray-50/80 border border-gray-100 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-bold text-xs"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 font-sans">
+                    <div>
+                      <label className="block text-[9px] font-black text-emerald-850 uppercase tracking-widest ml-1 mb-1">
+                        {isRTL ? "الحساسية" : "Known Allergies"}
+                      </label>
+                      <input
+                        type="text"
+                        value={rgAllergies}
+                        onChange={(e) => setRgAllergies(e.target.value)}
+                        placeholder="e.g. Penicillin"
+                        className="w-full px-4 py-3 bg-gray-50/80 border border-gray-100 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-bold text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-black text-emerald-850 uppercase tracking-widest ml-1 mb-1">
+                        {isRTL ? "التاريخ المرضي" : "Medical History"}
+                      </label>
+                      <input
+                        type="text"
+                        value={rgMedicalHistory}
+                        onChange={(e) => setRgMedicalHistory(e.target.value)}
+                        placeholder="e.g. Hypertension"
+                        className="w-full px-4 py-3 bg-gray-50/80 border border-gray-100 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-bold text-xs"
                       />
                     </div>
                   </div>
@@ -34400,7 +35891,7 @@ function App() {
 
             <div className="mt-8 text-center text-gray-400">
               <p className="text-[9px] font-bold uppercase tracking-widest">
-                {t.protectedByHims}
+                {t.protectedBySalamat}
               </p>
               <button
                 onClick={toggleLanguage}
@@ -34669,20 +36160,20 @@ function App() {
                   <img
                     src={systemLogo}
                     alt="System Logo"
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain"
                   />
                 ) : activeHospital?.logo_url ? (
                   <img
                     src={activeHospital.logo_url}
                     alt="Logo"
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain"
                     referrerPolicy="no-referrer"
                   />
                 ) : (
                   <img
                     src="/icon.png"
                     alt="System Logo"
-                    className="w-full h-full object-cover p-0"
+                    className="w-full h-full object-contain p-0"
                     referrerPolicy="no-referrer"
                   />
                 )}
@@ -34950,7 +36441,7 @@ function App() {
 
           {isSidebarOpen && (
             <div className="flex flex-col gap-1 text-[9px] text-slate-400 dark:text-slate-600 font-bold opacity-60">
-              <span>© HIMS Global 2026</span>
+              <span>© Salamat Global 2026</span>
             </div>
           )}
         </div>
@@ -35031,7 +36522,7 @@ function App() {
                   <img
                     src={systemLogo}
                     alt="System Logo"
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain"
                   />
                 ) : hospitals.find((h) => h.id === activeHospitalId)
                     ?.logo_url ? (
@@ -35040,13 +36531,13 @@ function App() {
                       hospitals.find((h) => h.id === activeHospitalId)?.logo_url
                     }
                     alt="Logo"
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain"
                   />
                 ) : (
                   <img
                     src="/icon.png"
                     alt="System Logo"
-                    className="w-full h-full object-cover p-0"
+                    className="w-full h-full object-contain p-0"
                     referrerPolicy="no-referrer"
                   />
                 )}
@@ -35199,17 +36690,11 @@ function App() {
 
               <AnimatePresence>
                 {showNotifications && (
-                  <>
-                    <div 
-                      className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40"
-                      onClick={() => setShowNotifications(false)}
-                    />
                     <motion.div
-                      initial={{ opacity: 0, scale: 0.95, x: "-50%", y: "-50%" }}
-                      animate={{ opacity: 1, scale: 1, x: "-50%", y: "-50%" }}
-                      exit={{ opacity: 0, scale: 0.95, x: "-50%", y: "-50%" }}
-                      style={{ left: "50%", top: "50%" }}
-                      className={`fixed w-[90%] max-w-sm bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl border border-gray-100/50 dark:border-slate-800 p-6 z-50 overflow-hidden flex flex-col ${isRTL ? "text-right" : "text-left"}`}
+                      initial={{ opacity: 0, y: 15, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 15, scale: 0.95 }}
+                      className={`absolute right-0 top-10 w-80 max-w-[90vw] bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl border border-gray-100/50 dark:border-slate-800 p-6 z-50 overflow-hidden flex flex-col ${isRTL ? "text-right" : "text-left"}`}
                     >
                     <div className="flex justify-between items-center mb-4">
                       <h4 className="font-black text-[11px] text-gray-800 uppercase tracking-tight">
@@ -35333,7 +36818,6 @@ function App() {
                       </button>
                     </div>
                   </motion.div>
-                  </>
                 )}
               </AnimatePresence>
             </div>
@@ -35354,7 +36838,7 @@ function App() {
             </div>
 
             {/* User Profile */}
-            <div className="relative shrink-0">
+            <div className="relative shrink-0" ref={headerUserDropdownRef}>
               <button
                 onClick={() => {
                   setShowHeaderUserDropdown(!showHeaderUserDropdown);
@@ -35507,7 +36991,7 @@ function App() {
                             ? "السجلات الطبية وتاريخ المرضى"
                             : "Clinical Data & Patient Histories"
                           : isRTL
-                            ? "بيئة عمل HIMS المتكاملة"
+                            ? "بيئة عمل سلامات المتكاملة"
                             : "Managed Clinical Operations Workspace"
                   }
                   icon={
@@ -35647,6 +37131,7 @@ function App() {
       {renderQrPrintModal()}
       {renderBiometricOverlay()}
       {renderEMRInspectorModal()}
+      {renderOtaUpdateModal()}
     </div>
   );
 };

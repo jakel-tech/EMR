@@ -209,6 +209,9 @@ export type AppUser = {
   external_lab_id?: string;
   external_pharmacy_id?: string;
   external_workshop_id?: string;
+  biometric_credential?: string;
+  biometric_public_key?: string;
+  incomplete_profile?: boolean | number;
 };
 
 export type PatientGender = 'Male' | 'Female' | 'Other';
@@ -231,6 +234,7 @@ export type Patient = {
   balance?: number;
   visitType?: 'inpatient' | 'outpatient' | 'emergency';
   avatar?: string;
+  incomplete_profile?: boolean | number;
 };
 
 export type MedicalRecord = {

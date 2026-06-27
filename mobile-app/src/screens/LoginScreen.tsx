@@ -34,7 +34,7 @@ export default function LoginScreen({ navigation }: any) {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>CMMS Tech Portal</Text>
+      <Text style={styles.title}>سلامات | Salamat</Text>
       
       <View style={styles.inputContainer}>
         <Text style={styles.label}>Email</Text>

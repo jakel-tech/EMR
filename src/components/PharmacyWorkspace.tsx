@@ -1147,7 +1147,7 @@ const PharmacyWorkspace: React.FC<PharmacyWorkspaceProps> = ({
                                 ctx.fillStyle = "#38bdf8";
                                 ctx.font = "bold 20px monospace";
                                 ctx.fillText(
-                                  checkBank || "HIMS CENTRAL BANK",
+                                  checkBank || "SALAMAT CENTRAL BANK",
                                   30,
                                   45,
                                 );

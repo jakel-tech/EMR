@@ -16,6 +16,7 @@ import { Server as SocketIOServer } from "socket.io";
 import twilio from "twilio";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import TelegramBot from "node-telegram-bot-api";
 import { v4 as uuidv4 } from "uuid";
 import { GoogleGenAI } from "@google/genai";
 import { initializeApp } from "firebase/app";
@@ -31,30 +32,163 @@ import zlib from "zlib";
 dotenv.config();
 
 // Standard Email Mailer transporter setup
-const mailTransporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || "smtp.ethereal.email",
-  port: process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT) : 587,
-  secure: process.env.SMTP_PORT === "465",
-  auth: {
-    user: process.env.SMTP_USER || "fake-user",
-    pass: process.env.SMTP_PASS || "fake-pass",
-  },
-});
+let mailTransporter: nodemailer.Transporter | null = null;
+let etherealAccount: nodemailer.TestAccount | null = null;
+
+const initTransporter = async () => {
+  if (process.env.SMTP_HOST && process.env.SMTP_HOST !== "smtp.example.com") {
+    mailTransporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT) : 587,
+      secure: process.env.SMTP_PORT === "465",
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+      tls: {
+        rejectUnauthorized: false,
+      },
+    });
+  } else {
+    try {
+      etherealAccount = await nodemailer.createTestAccount();
+      mailTransporter = nodemailer.createTransport({
+        host: "smtp.ethereal.email",
+        port: 587,
+        secure: false,
+        auth: {
+          user: etherealAccount.user,
+          pass: etherealAccount.pass,
+        },
+      });
+      console.log("Created Ethereal Test Account for Emails");
+    } catch (err) {
+      console.warn("Failed to create Ethereal test account", err);
+    }
+  }
+};
+
+initTransporter();
+
+// Telegram Bot setup
+let telegramBot: TelegramBot | null = null;
+let telegramBotUsername = "";
+
+if (process.env.TELEGRAM_BOT_TOKEN) {
+  try {
+    telegramBot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
+    console.log("Telegram Bot initialized successfully.");
+    
+    telegramBot.getMe().then(me => {
+      telegramBotUsername = me.username || "";
+    });
+    
+    telegramBot.on('message', async (msg) => {
+      const chatId = msg.chat.id;
+      
+      if (msg.text && msg.text.startsWith('/start')) {
+        const parts = msg.text.split(' ');
+        
+        if (parts.length > 1) {
+          // Has payload e.g., /start user_1 or /start patient_5
+          const payload = parts[1];
+          try {
+            if (payload.startsWith('user_')) {
+              const userId = payload.split('_')[1];
+              await db.run("UPDATE users SET telegram_chat_id = ? WHERE id = ?", [chatId.toString(), userId]);
+            } else if (payload.startsWith('patient_')) {
+              const patientId = payload.split('_')[1];
+              await db.run("UPDATE patients SET telegram_chat_id = ? WHERE id = ?", [chatId.toString(), patientId]);
+            }
+            telegramBot?.sendMessage(chatId, `تم ربط حسابك بنجاح! ستصلك التنبيهات هنا.\n\nAccount linked successfully! You will receive notifications here.`);
+          } catch (dbErr) {
+            console.error("Database error linking telegram by payload:", dbErr);
+          }
+        } else {
+          // Normal start
+          telegramBot?.sendMessage(chatId, `أهلاً بك في بوت نظام سلامات! يرجى الضغط على الزر أدناه لمشاركة رقم هاتفك وتفعيل التنبيهات.\n\nWelcome to Salamat HIMS Bot! Please click the button below to share your phone number and activate notifications.`, {
+            reply_markup: {
+              keyboard: [[{ text: "مشاركة رقم الهاتف / Share Phone Number", request_contact: true }]],
+              one_time_keyboard: true,
+              resize_keyboard: true
+            }
+          });
+        }
+      }
+
+      if (msg.contact) {
+        let phoneNumber = msg.contact.phone_number;
+        // Normalize phone number: remove + and leading zeros for better matching if needed, 
+        // but usually just keeping it as is or removing '+' is safest.
+        const normalizedPhone = phoneNumber.replace(/\+/g, '');
+        
+        console.log(`Received contact: ${phoneNumber} for chatId: ${chatId}`);
+        
+        try {
+          // Update users table
+          await db.run("UPDATE users SET telegram_chat_id = ? WHERE phone = ? OR phone = ?", [chatId.toString(), phoneNumber, normalizedPhone]);
+          // Update patients table
+          await db.run("UPDATE patients SET telegram_chat_id = ? WHERE contactNumber = ? OR contactNumber = ?", [chatId.toString(), phoneNumber, normalizedPhone]);
+          
+          telegramBot?.sendMessage(chatId, `تم ربط رقم هاتفك بنجاح! ستصلك التنبيهات هنا.\n\nPhone number linked successfully! You will receive notifications here.`, {
+            reply_markup: { remove_keyboard: true }
+          });
+        } catch (dbErr) {
+          console.error("Database error linking telegram:", dbErr);
+        }
+      }
+    });
+  } catch (err) {
+    console.error("Failed to initialize Telegram Bot:", err);
+  }
+}
 
 const sendNodeMail = async (to: string, subject: string, html: string) => {
-  if (!process.env.SMTP_HOST) {
-    console.warn("SMTP_HOST is not configured. Email might fail.");
+  if (!mailTransporter) {
+    console.warn("Mail transporter not initialized yet. Cannot send email.");
+    return { success: false, error: "Mail transporter not initialized" };
   }
 
   try {
+    let fromAddress = process.env.SMTP_FROM_EMAIL;
+    // If fromAddress is a system default or contains a system template domain,
+    // or if using Gmail SMTP, we should prefer sending from the actual authenticated user (SMTP_USER)
+    // to bypass strict SPF, DKIM, and anti-spoofing restrictions of modern mail services.
+    if (
+      !fromAddress ||
+      fromAddress.includes("hims-") ||
+      fromAddress.includes("ais-dev-") ||
+      (process.env.SMTP_HOST && process.env.SMTP_HOST.includes("gmail"))
+    ) {
+      if (process.env.SMTP_USER) {
+        fromAddress = `"سلامات | Salamat" <${process.env.SMTP_USER}>`;
+      }
+    }
+    if (!fromAddress) {
+      fromAddress = '"سلامات | Salamat" <Notifications@hims-482332599885.us-west1.run.app>';
+    }
+
+    const attachments: any[] = [];
+    const logoPath = path.join(process.cwd(), "public", "images", "jakel_logo.png");
+    if (fs.existsSync(logoPath)) {
+      attachments.push({
+        filename: "jakel_logo.png",
+        path: logoPath,
+        cid: "jakel_logo",
+      });
+    }
+
     const info = await mailTransporter.sendMail({
-      from:
-        process.env.SMTP_FROM_EMAIL || '"JAKEL HIMS" <Notifications@hims-482332599885.us-west1.run.app>',
+      from: fromAddress,
       to,
       subject,
       html,
+      attachments,
     });
     console.log(`Email sent to ${to}: ${info.messageId}`);
+    if (etherealAccount) {
+      console.log(`Preview URL: ${nodemailer.getTestMessageUrl(info)}`);
+    }
     return { success: true };
   } catch (error: any) {
     console.error(
@@ -72,43 +206,98 @@ const sendWelcomeEmail = async (
   id: string,
   password?: string,
 ) => {
-  const subject = `Welcome to JAKEL HIMS - ${name}`;
-  const html = `
-    <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 20px;">
-      <h2 style="color: #0f172a;">Welcome to JAKEL HIMS</h2>
-      <p>Hello <strong>${name}</strong>,</p>
-      <p>Your registration as <strong>${role}</strong> has been completed successfully.</p>
-      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-      <p style="margin-bottom: 5px;"><strong>Account Details:</strong></p>
-      <p style="margin: 0;">Organization/Account ID: <strong>${id}</strong></p>
-      <p style="margin: 0;">Login Email: <strong>${email}</strong></p>
-      ${password ? `<p style="margin: 0;">Temporary Password: <strong>${password}</strong></p>` : ""}
-      <p style="margin-top: 20px;">
-        <a href="${process.env.APP_URL || "https://hims.pro/login"}" style="background: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 10px; font-weight: bold;">Login Now</a>
-      </p>
-      <p style="font-size: 12px; color: #64748b; margin-top: 30px;">
-        Note: If you were not expecting this email, please ignore it or contact our support team.
-      </p>
+  const subject = `Welcome to Salamat - ${name} | أهلاً بك في سلامات`;
+  const content = `
+    <div style="direction: rtl; text-align: right; margin-bottom: 25px; border-bottom: 1px solid #f1f5f9; padding-bottom: 20px;">
+      <h2 style="color: #0284c7; font-size: 20px; font-weight: 800; margin-top: 0; margin-bottom: 10px;">أهلاً بك في منصة سلامات الطبية</h2>
+      <p style="font-size: 14px; color: #334155; line-height: 1.6; margin: 0 0 10px 0;">مرحباً <strong>${name}</strong>،</p>
+      <p style="font-size: 14px; color: #334155; line-height: 1.6; margin: 0;">تم إكمال تسجيل حسابك بنجاح بصفتك <strong>${role === "Patient" ? "مريض مراجع" : role === "Super Admin" ? "مدير عام النظام" : role}</strong>.</p>
+    </div>
+    
+    <div style="direction: ltr; text-align: left; margin-bottom: 25px; border-bottom: 1px solid #f1f5f9; padding-bottom: 20px;">
+      <h2 style="color: #4f46e5; font-size: 20px; font-weight: 800; margin-top: 0; margin-bottom: 10px;">Welcome to Salamat Medical Platform</h2>
+      <p style="font-size: 14px; color: #334155; line-height: 1.6; margin: 0 0 10px 0;">Hello <strong>${name}</strong>,</p>
+      <p style="font-size: 14px; color: #334155; line-height: 1.6; margin: 0;">Your registration as <strong>${role}</strong> has been completed successfully.</p>
+    </div>
+
+    <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 20px; margin-bottom: 25px;">
+      <h3 style="font-size: 14px; font-weight: 700; color: #1e293b; margin-top: 0; margin-bottom: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 10px; text-align: center;">
+        تفاصيل الحساب | Account Details
+      </h3>
+      <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #334155;">
+        <tr>
+          <td style="padding: 8px 0; font-weight: bold; color: #475569; text-align: left;">ID / المعرف:</td>
+          <td style="padding: 8px 0; text-align: right; font-weight: bold; color: #0f172a;">${id}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; font-weight: bold; color: #475569; text-align: left;">Email / البريد:</td>
+          <td style="padding: 8px 0; text-align: right; font-weight: bold; color: #0f172a;">${email}</td>
+        </tr>
+        ${password ? `
+        <tr>
+          <td style="padding: 8px 0; font-weight: bold; color: #dc2626; text-align: left;">Temp Password / كلمة المرور:</td>
+          <td style="padding: 8px 0; text-align: right; font-weight: bold; color: #dc2626; font-family: monospace;">${password}</td>
+        </tr>` : ""}
+      </table>
+    </div>
+
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${process.env.APP_URL || "https://hims.pro/login"}" style="background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%); color: white; padding: 14px 35px; text-decoration: none; border-radius: 14px; font-weight: bold; font-size: 14px; display: inline-block; box-shadow: 0 4px 12px rgba(14, 165, 233, 0.25);">
+        تسجيل الدخول الآن | Login Now
+      </a>
     </div>
   `;
-  return sendNodeMail(email, subject, html);
+  return sendNodeMail(email, subject, getEmailLayout(content, ""));
 };
 
 const getEmailLayout = (content: string, logoUrl: string) => `
-  <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 30px; border: 1px solid #e2e8f0; border-radius: 20px; max-width: 600px; margin: 0 auto; color: #334155; background-color: #ffffff;">
-    <div style="text-align: center; margin-bottom: 30px; border-bottom: 2px solid #f1f5f9; padding-bottom: 20px;">
-      <!-- Use system-provided logo image -->
-      <img src="${process.env.APP_URL}/images/jakel_logo.png" alt="JAKEL HIMS Logo" style="max-height: 120px; width: auto; margin-bottom: 20px; display: block; margin-left: auto; margin-right: auto;" />
-      <h1 style="color: #1e293b; margin: 0; font-size: 24px;">JAKEL HIMS</h1>
-      <p style="color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; margin: 5px 0 0 0;">Hospital Information Management System</p>
+  <!DOCTYPE html>
+  <html lang="ar">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>سلامات | Salamat Portal</title>
+  </head>
+  <body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;">
+    <div style="background-color: #f1f5f9; padding: 40px 10px; min-height: 100%;">
+      <div style="max-width: 620px; margin: 0 auto; background-color: #ffffff; border-radius: 32px; overflow: hidden; box-shadow: 0 15px 35px -5px rgba(0, 0, 0, 0.04), 0 10px 15px -10px rgba(0, 0, 0, 0.04); border: 1px solid rgba(226, 232, 240, 0.8);">
+        
+        <!-- Header Banner Block with Gradient or Clean White Accents -->
+        <div style="background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%); padding: 40px 30px 25px 30px; text-align: center; border-bottom: 1px solid #f1f5f9;">
+          <!-- Use system-provided logo image with larger dimensions, centered perfectly and embedded directly to avoid broken images -->
+          <div style="text-align: center; margin-bottom: 25px;">
+            <img src="cid:jakel_logo" alt="JAKEL Logo" width="540" style="width: 540px; max-width: 100%; height: auto; display: inline-block; margin: 0 auto; vertical-align: middle;" />
+          </div>
+          
+          <h1 style="color: #0f172a; margin: 0; font-size: 28px; font-weight: 900; letter-spacing: -0.02em;">سلامات | Salamat</h1>
+          <p style="color: #0284c7; font-size: 11px; text-transform: uppercase; letter-spacing: 0.15em; font-weight: 800; margin: 6px 0 0 0;">نظام إدارة المستشفيات الموحد</p>
+          <p style="color: #64748b; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin: 2px 0 0 0;">Unified Hospital Information Management System</p>
+        </div>
+
+        <!-- Body Content Block -->
+        <div style="padding: 40px 35px; background-color: #ffffff; line-height: 1.7; color: #334155;">
+          ${content}
+        </div>
+
+        <!-- Extra Trust / Info Badging -->
+        <div style="background-color: #fafbfd; padding: 20px 35px; border-top: 1px solid #f1f5f9; border-bottom: 1px solid #f1f5f9; text-align: center;">
+          <div style="display: inline-block; vertical-align: middle; padding: 0 10px;">
+            <span style="font-size: 11px; font-weight: 700; color: #0284c7;">🔒 اتصال آمن ونظام محمي بالكامل | Secure Connection</span>
+          </div>
+        </div>
+
+        <!-- Footer Block -->
+        <div style="padding: 40px 30px; background-color: #ffffff; text-align: center; color: #94a3b8; font-size: 11px; border-top: 1px dashed #e2e8f0;">
+          <p style="margin: 0 0 8px 0; font-weight: 600; color: #64748b;">تطبيق سلامات الموحد للرعاية الصحية والخدمات الطبية</p>
+          <p style="margin: 0 0 20px 0; font-family: monospace;">Salamat Unified Health & Care Platform</p>
+          <div style="height: 1px; background-color: #f1f5f9; width: 60px; margin: 0 auto 20px auto;"></div>
+          <p style="margin: 0; font-size: 10px; color: #cbd5e1;">&copy; ${new Date().getFullYear()} Salamat Medical Solutions. جميع الحقوق محفوظة.</p>
+        </div>
+
+      </div>
     </div>
-    <div style="padding: 10px 0;">
-      ${content}
-    </div>
-    <div style="margin-top: 40px; border-top: 1px solid #f1f5f9; padding-top: 20px; text-align: center; color: #94a3b8; font-size: 12px;">
-      <p>&copy; ${new Date().getFullYear()} JAKEL Medical Solutions. All rights reserved.</p>
-    </div>
-  </div>
+  </body>
+  </html>
 `;
 
 let firebaseConfigObj: any = null;
@@ -188,9 +377,9 @@ async function uploadDbToFirestore() {
       const stats = fs.statSync(DB_PATH);
       const sizeInMB = stats.size / (1024 * 1024);
 
-      if (sizeInMB > 25) {
+      if (sizeInMB > MAX_DB_SIZE_MB) {
         console.warn(
-          `[SCALE ALERT] Database size is ${sizeInMB.toFixed(2)} MB, exceeding 25MB threshold.`,
+          `[SCALE ALERT] Database size is ${sizeInMB.toFixed(2)} MB, exceeding ${MAX_DB_SIZE_MB}MB threshold. Sync skipped.`,
         );
         return;
       }
@@ -266,6 +455,7 @@ const DATA_DIR =
     ? path.join("/tmp", "data")
     : path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "database.sqlite");
+const MAX_DB_SIZE_MB = 100;
 
 let db: Database;
 let io: SocketIOServer;
@@ -284,52 +474,66 @@ async function sendEmail({
   text?: string;
 }) {
   try {
-    if (!db) {
-      console.warn("DB not initialized. Skipping email send to:", to);
-      return false;
+    let sent = false;
+    const gmailToken = db
+      ? await db.get("SELECT value FROM sys_config WHERE key = ?", [
+          "gmail_refresh_token",
+        ])
+      : null;
+
+    if (gmailToken?.value) {
+      try {
+        const { google } = await import("googleapis");
+        const oauth2Client = new google.auth.OAuth2(
+          process.env.GOOGLE_CLIENT_ID,
+          process.env.GOOGLE_CLIENT_SECRET,
+          `${process.env.APP_URL}/oauth2callback`,
+        );
+
+        oauth2Client.setCredentials({ refresh_token: gmailToken.value });
+        const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+
+        const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString("base64")}?=`;
+        const messageParts = [
+          `To: ${to}`,
+          `Content-Type: ${html ? "text/html" : "text/plain"}; charset=utf-8`,
+          "MIME-Version: 1.0",
+          `Subject: ${utf8Subject}`,
+          "",
+          html || text || "",
+        ];
+        const message = messageParts.join("\n");
+        const encodedMessage = Buffer.from(message)
+          .toString("base64")
+          .replace(/\+/g, "-")
+          .replace(/\//g, "_")
+          .replace(/=+$/, "");
+
+        await gmail.users.messages.send({
+          userId: "me",
+          requestBody: { raw: encodedMessage },
+        });
+        console.log(`Email successfully sent to ${to} via Gmail OAuth`);
+        sent = true;
+      } catch (err) {
+        console.error("Gmail sendEmail failed, falling back to SMTP...", err);
+      }
     }
-    const gmailToken = await db.get(
-      "SELECT value FROM sys_config WHERE key = ?",
-      ["gmail_refresh_token"],
-    );
-    if (!gmailToken?.value) {
-      console.warn("Gmail not configured. Skipping email send to:", to);
-      return false;
+
+    if (!sent) {
+      console.log(`Attempting to send email to ${to} via SMTP transporter...`);
+      const result = await sendNodeMail(to, subject, html || text || "");
+      if (result.success) {
+        console.log(`Email successfully sent to ${to} via SMTP transporter`);
+        return true;
+      } else {
+        console.error("SMTP fallback also failed:", result.error);
+        return false;
+      }
     }
-
-    const { google } = await import("googleapis");
-    const oauth2Client = new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET,
-      `${process.env.APP_URL}/oauth2callback`,
-    );
-
-    oauth2Client.setCredentials({ refresh_token: gmailToken.value });
-    const gmail = google.gmail({ version: "v1", auth: oauth2Client });
-
-    const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString("base64")}?=`;
-    const messageParts = [
-      `To: ${to}`,
-      `Content-Type: ${html ? "text/html" : "text/plain"}; charset=utf-8`,
-      "MIME-Version: 1.0",
-      `Subject: ${utf8Subject}`,
-      "",
-      html || text || "",
-    ];
-    const message = messageParts.join("\n");
-    const encodedMessage = Buffer.from(message)
-      .toString("base64")
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=+$/, "");
-
-    await gmail.users.messages.send({
-      userId: "me",
-      requestBody: { raw: encodedMessage },
-    });
     return true;
   } catch (err) {
-    console.error("sendEmail failed:", err);
+    console.error("sendEmail completely failed:", err);
     return false;
   }
 }
@@ -681,6 +885,7 @@ async function runMigrationsAndSeed(targetDb: Database) {
       external_lab_id TEXT,
       external_pharmacy_id TEXT,
       external_workshop_id TEXT,
+      telegram_chat_id TEXT,
       FOREIGN KEY(hospital_id) REFERENCES hospitals(id),
       FOREIGN KEY(department_id) REFERENCES departments(id)
     );
@@ -706,6 +911,9 @@ async function runMigrationsAndSeed(targetDb: Database) {
       insurance_plan_name TEXT,
       balance REAL DEFAULT 0,
       avatar TEXT,
+      incomplete_profile INTEGER DEFAULT 0,
+      visitType TEXT,
+      telegram_chat_id TEXT,
       FOREIGN KEY(hospital_id) REFERENCES hospitals(id)
     );
     CREATE TABLE IF NOT EXISTS medical_records (
@@ -2657,27 +2865,29 @@ async function startServer() {
         db
           .all("SELECT * FROM inventory WHERE hospital_id = ?", [hId])
           .catch(() => []),
-        db
-          .all(
-            "SELECT * FROM users WHERE hospital_id = ? OR hospital_id IS NULL",
-            [hId],
-          )
-          .then((rows) => {
-            return rows.map((u: any) => {
-              if (role === "Super Admin") return u;
-              const {
-                password,
-                plain_password,
-                salary,
-                bank_account,
-                national_id,
-                permissions,
-                ...userWithoutPassword
-              } = u;
-              return userWithoutPassword;
-            });
-          })
-          .catch(() => []),
+        isPatient 
+          ? Promise.resolve([]) 
+          : db
+              .all(
+                "SELECT * FROM users WHERE hospital_id = ? OR hospital_id IS NULL",
+                [hId],
+              )
+              .then((rows) => {
+                return rows.map((u: any) => {
+                  if (role === "Super Admin") return u;
+                  const {
+                    password,
+                    plain_password,
+                    salary,
+                    bank_account,
+                    national_id,
+                    permissions,
+                    ...userWithoutPassword
+                  } = u;
+                  return userWithoutPassword;
+                });
+              })
+              .catch(() => []),
         db.all("SELECT * FROM hospitals").catch(() => []),
         isPatient
           ? db
@@ -2910,13 +3120,13 @@ async function startServer() {
       const content = `
           <div style="text-align: center;">
             <h2 style="color: #2563eb; margin-bottom: 20px;">Connection Test</h2>
-            <p>This is a test email sent from JAKEL HIMS to verify SMTP settings.</p>
+            <p>This is a test email sent from Salamat Portal to verify SMTP settings.</p>
             <p style="margin-top:20px;">Status: <span style="color: #10b981; font-weight: bold; background: #ecfdf5; padding: 4px 12px; border-radius: 8px;">Verified</span></p>
           </div>
       `;
       const result = await sendNodeMail(
         email,
-        "Test Email - JAKEL HIMS",
+        "Test Email - Salamat",
         getEmailLayout(content, logoUrl),
       );
 
@@ -3040,7 +3250,7 @@ async function startServer() {
 
       let sentRealEmail = false;
 
-      const subject = "Password Recovery - JAKEL HIMS";
+      const subject = "Password Recovery - Salamat";
       const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString("base64")}?=`;
 
       const messageParts = [
@@ -3093,7 +3303,7 @@ async function startServer() {
         const fullContent = messageParts.slice(5).join("\n"); // omit headers, include just html body
         const result = await sendNodeMail(
           email,
-          "Password Recovery - JAKEL HIMS | استعادة كلمة المرور لـ جاكيل",
+          "Password Recovery - Salamat | استعادة كلمة المرور لـ سلامات",
           fullContent,
         );
         if (result.success) {
@@ -3563,7 +3773,7 @@ async function startServer() {
         const hospitalId = "h1"; // Default Hospital
 
         await db.run(
-          "INSERT INTO patients (id, hospital_id, name, email, avatar, is_verified, balance) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          "INSERT INTO patients (id, hospital_id, name, email, avatar, is_verified, balance, incomplete_profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
           [
             newPatientId,
             hospitalId,
@@ -3572,6 +3782,7 @@ async function startServer() {
             picture || null,
             1,
             0,
+            1, // Mark as incomplete
           ],
         );
 
@@ -3817,12 +4028,20 @@ async function startServer() {
         bloodType,
         contactNumber,
         nationalId,
+        address,
+        allergies,
+        medicalHistory,
+        visitType,
       } = req.body;
 
-      if (!name || !email || !password) {
+      if (!name || !email || !password || !nationalId || !dob || !address) {
         return res
           .status(400)
-          .json({ error: "Name, email and password are required" });
+          .json({ error: "Missing required fields (Name, Email, Password, National ID, DOB, Address)" });
+      }
+
+      if (nationalId.trim().length !== 11) {
+        return res.status(400).json({ error: "National ID must be exactly 11 digits" });
       }
 
       const trimmedEmail = email.trim().toLowerCase();
@@ -3860,7 +4079,7 @@ async function startServer() {
       const hashedPassword = await bcrypt.hash(password, 10);
 
       const result = await db.run(
-        "INSERT INTO patients (id, hospital_id, name, dob, gender, bloodType, contactNumber, national_id, email, password, is_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO patients (id, hospital_id, name, dob, gender, bloodType, contactNumber, address, allergies, medicalHistory, national_id, email, password, is_verified, visitType, incomplete_profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
           generatedId,
           "h1", // default hospital
@@ -3869,10 +4088,15 @@ async function startServer() {
           gender || "Male",
           bloodType || "O+",
           contactNumber ? contactNumber.trim() : "",
+          address ? address.trim() : "",
+          allergies ? allergies.trim() : "",
+          medicalHistory ? medicalHistory.trim() : "",
           nationalId ? nationalId.trim() : null,
           trimmedEmail,
           hashedPassword,
           1, // is_verified
+          visitType || "outpatient",
+          0, // Mark as complete since we verified fields
         ],
       );
 
@@ -3888,7 +4112,7 @@ async function startServer() {
         const welcomeMailHtml = getEmailLayout(
           `
             <div style="text-align: center;">
-              <h2 style="color: #1e293b;">Welcome to JAKEL HIMS</h2>
+              <h2 style="color: #1e293b;">Welcome to Salamat</h2>
               <p>Hello ${name},</p>
               <p>Your patient portal account has been created successfully.</p>
               <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin: 20px 0; text-align: center;">
@@ -3903,7 +4127,7 @@ async function startServer() {
 
         await sendNodeMail(
           trimmedEmail,
-          "Welcome to JAKEL HIMS - Registration Successful",
+          "Welcome to Salamat - Registration Successful",
           welcomeMailHtml,
         );
       } catch (mailErr) {
@@ -3963,6 +4187,23 @@ async function startServer() {
           "SELECT * FROM users WHERE LOWER(email) = LOWER(?)",
           [email.trim()],
         );
+        if (!user) {
+          return res.status(404).json({
+            error: "No user associated with this email.",
+            errorAr: "لم يتم العثور على مستخدم مرتبط بهذا البريد الإلكتروني."
+          });
+        }
+        if (!user.biometric_credential) {
+          return res.status(400).json({
+            error: "This account has not enrolled a biometric fingerprint yet. Please log in using your password first, then enroll your biometric signature from the dashboard settings.",
+            errorAr: "هذا الحساب لم يقم بتسجيل بصمة أصبع بيومترية بعد. يرجى تسجيل الدخول بكلمة المرور أولاً وتفعيل البصمة من الإعدادات."
+          });
+        }
+        // If they have enrolled but no credentialId was provided by the device
+        return res.status(400).json({
+          error: "Biometric login is not active on this device yet. Please log in with password first and register your fingerprint on this device.",
+          errorAr: "الدخول بالبصمة غير مفعل على هذا المتصفح/الجهاز بعد. يرجى تسجيل الدخول بكلمة المرور أولاً، ثم قم بتفعيل بصمتك من لوحة التحكم."
+        });
       } else if (credentialId) {
         user = await db.get(
           "SELECT * FROM users WHERE biometric_credential = ?",
@@ -3973,7 +4214,10 @@ async function startServer() {
       if (!user) {
         return res
           .status(404)
-          .json({ error: "No user associated with this biometric signature" });
+          .json({
+            error: "No user associated with this biometric signature or device.",
+            errorAr: "لا يوجد مستخدم مرتبط ببصمة الأصبع هذه أو بهذا الجهاز."
+          });
       }
 
       const isEmergency =
@@ -4055,7 +4299,7 @@ async function startServer() {
         ["system_logo"],
       );
       res.json({
-        system_name: nameRow ? nameRow.value : "HIMS Pro Gateway",
+        system_name: nameRow ? nameRow.value : "Salamat",
         system_logo: logoRow ? logoRow.value : "",
       });
     } catch (err) {
@@ -4488,6 +4732,84 @@ async function startServer() {
     }
   });
 
+  // Global DB Sync Endpoints
+  app.get("/api/system/sync-status", authenticateToken, async (req: any, res) => {
+    try {
+      if (req.user.role !== "Super Admin") return res.status(403).json({ error: "Forbidden" });
+      const stats = fs.existsSync(DB_PATH) ? fs.statSync(DB_PATH) : null;
+      res.json({
+        lastSync: lastLocalTimestamp,
+        dbSize: stats ? stats.size : 0,
+        limitMB: MAX_DB_SIZE_MB,
+        isFirestoreConnected: !!firestoreDb,
+      });
+    } catch (e) {
+      res.status(500).json({ error: "Failed to get sync status" });
+    }
+  });
+
+  app.post("/api/system/trigger-sync", authenticateToken, async (req: any, res) => {
+    try {
+      if (req.user.role !== "Super Admin") return res.status(403).json({ error: "Forbidden" });
+      await uploadDbToFirestore();
+      res.json({ success: true, message: "Sync triggered" });
+    } catch (e) {
+      res.status(500).json({ error: "Failed to trigger sync" });
+    }
+  });
+
+  app.post("/api/system/trigger-restore", authenticateToken, async (req: any, res) => {
+    try {
+      if (req.user.role !== "Super Admin") return res.status(403).json({ error: "Forbidden" });
+      isRestoringDb = true;
+      const success = await downloadDbFromFirestore();
+      isRestoringDb = false;
+      if (success) {
+        res.json({ success: true, message: "Restore successful. Restarting server might be needed for some state." });
+      } else {
+        res.status(500).json({ error: "Restore failed" });
+      }
+    } catch (e) {
+      isRestoringDb = false;
+      res.status(500).json({ error: "Failed to trigger restore" });
+    }
+  });
+  app.get("/api/system/telegram-bot", (req, res) => {
+    if (!telegramBot) {
+      return res.status(503).json({ error: "Telegram Bot not configured" });
+    }
+    res.json({ username: telegramBotUsername });
+  });
+  app.post("/api/system/send-telegram", authenticateToken, async (req: any, res) => {
+    try {
+      const { chatId, phone, message } = req.body;
+      if (!telegramBot) {
+        return res.status(503).json({ error: "Telegram Bot not configured" });
+      }
+
+      let targetChatId = chatId;
+
+      if (phone) {
+        // Try to find chatId by phone in users or patients
+        const normalizedPhone = phone.replace(/\+/g, '');
+        const user = await db.get("SELECT telegram_chat_id FROM users WHERE phone = ? OR phone = ?", [phone, normalizedPhone]);
+        const patient = await db.get("SELECT telegram_chat_id FROM patients WHERE contactNumber = ? OR contactNumber = ?", [phone, normalizedPhone]);
+        
+        targetChatId = user?.telegram_chat_id || patient?.telegram_chat_id;
+      }
+
+      if (!targetChatId) {
+        return res.status(404).json({ error: "Telegram Chat ID not found for this user/phone. Please ensure the user has started the bot and shared their contact." });
+      }
+
+      await telegramBot.sendMessage(targetChatId, message);
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error("Telegram send error:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.post("/api/system/test-email", authenticateToken, async (req: any, res) => {
     if (req.user.role !== "Super Admin") {
       return res.status(403).json({ error: "Only Super Admins can test emails" });
@@ -4497,12 +4819,12 @@ async function startServer() {
 
     const testHtml = getEmailLayout(
       `<h2>Email System Test</h2>
-       <p>This is a test email from your JAKEL HIMS configuration.</p>
+       <p>This is a test email from your Salamat configuration.</p>
        <p>If you see this, your SMTP settings are working correctly.</p>`,
       ""
     );
 
-    const result = await sendNodeMail(email, "JAKEL HIMS - Email Test", testHtml);
+    const result = await sendNodeMail(email, "Salamat - Email Test", testHtml);
     if (result.success) {
       res.json({ message: "Test email sent successfully" });
     } else {
@@ -5757,6 +6079,7 @@ async function startServer() {
   // Feedback API
   app.get("/api/feedback", authenticateToken, async (req: any, res) => {
     try {
+      if (!db || isRestoringDb) return res.status(503).json({ error: "Database not ready" });
       const { role, userId, hospitalId } = req;
       let query = "SELECT * FROM user_feedback ORDER BY created_at DESC";
       let params: any[] = [];
@@ -5779,6 +6102,7 @@ async function startServer() {
 
   app.post("/api/feedback", authenticateToken, async (req: any, res) => {
     try {
+      if (!db || isRestoringDb) return res.status(503).json({ error: "Database not ready" });
       const { userId, role, hospitalId } = req;
       const { type, title, content, user_name } = req.body;
       const id = "feed-" + Date.now();
@@ -5797,6 +6121,7 @@ async function startServer() {
 
   app.put("/api/feedback/:id/status", authenticateToken, async (req: any, res) => {
     try {
+      if (!db || isRestoringDb) return res.status(503).json({ error: "Database not ready" });
       const { id } = req.params;
       const { status } = req.body;
       await db.run("UPDATE user_feedback SET status = ? WHERE id = ?", [status, id]);
@@ -6122,9 +6447,9 @@ async function startServer() {
 
   app.put("/api/patients/:id", async (req, res) => {
     try {
-      const { role } = req as any;
-      if (role !== "Super Admin") {
-        return res.status(403).json({ error: "Only Super Admin can edit patient accounts" });
+      const { role, userId } = req as any;
+      if (role !== "Super Admin" && userId !== req.params.id) {
+        return res.status(403).json({ error: "Unauthorized to edit this patient record" });
       }
 
       const {
@@ -6144,6 +6469,7 @@ async function startServer() {
         insurance_copay_percent,
         insurance_expiry,
         insurance_plan_name,
+        telegram_chat_id,
       } = req.body;
 
       const copay_pct =
@@ -6154,7 +6480,7 @@ async function startServer() {
       if (password) {
         const hashedPassword = await bcrypt.hash(password, 10);
         await db.run(
-          "UPDATE patients SET name=?, dob=?, gender=?, bloodType=?, contactNumber=?, address=?, allergies=?, medicalHistory=?, national_id=?, email=?, password=?, insurance_provider=?, insurance_policy_number=?, insurance_copay_percent=?, insurance_expiry=?, insurance_plan_name=? WHERE id=? AND hospital_id=?",
+          "UPDATE patients SET name=?, dob=?, gender=?, bloodType=?, contactNumber=?, address=?, allergies=?, medicalHistory=?, national_id=?, email=?, password=?, insurance_provider=?, insurance_policy_number=?, insurance_copay_percent=?, insurance_expiry=?, insurance_plan_name=?, telegram_chat_id=? WHERE id=? AND hospital_id=?",
           [
             name,
             dob,
@@ -6172,13 +6498,14 @@ async function startServer() {
             copay_pct,
             insurance_expiry || null,
             insurance_plan_name || null,
+            telegram_chat_id || null,
             req.params.id,
             (req as any).hospitalId,
           ],
         );
       } else {
         await db.run(
-          "UPDATE patients SET name=?, dob=?, gender=?, bloodType=?, contactNumber=?, address=?, allergies=?, medicalHistory=?, national_id=?, email=?, insurance_provider=?, insurance_policy_number=?, insurance_copay_percent=?, insurance_expiry=?, insurance_plan_name=? WHERE id=? AND hospital_id=?",
+          "UPDATE patients SET name=?, dob=?, gender=?, bloodType=?, contactNumber=?, address=?, allergies=?, medicalHistory=?, national_id=?, email=?, insurance_provider=?, insurance_policy_number=?, insurance_copay_percent=?, insurance_expiry=?, insurance_plan_name=?, telegram_chat_id=? WHERE id=? AND hospital_id=?",
           [
             name,
             dob,
@@ -6195,6 +6522,7 @@ async function startServer() {
             copay_pct,
             insurance_expiry || null,
             insurance_plan_name || null,
+            telegram_chat_id || null,
             req.params.id,
             (req as any).hospitalId,
           ],
@@ -7647,6 +7975,7 @@ async function startServer() {
         balance,
         signature,
         is_blocked,
+        telegram_chat_id,
       } = req.body;
       const currentUser = req as any;
 
@@ -7698,6 +8027,10 @@ async function startServer() {
       if (signature !== undefined) {
         updates.push("signature = ?");
         params.push(signature);
+      }
+      if (telegram_chat_id !== undefined) {
+        updates.push("telegram_chat_id = ?");
+        params.push(telegram_chat_id);
       }
       if (hospital_id !== undefined) {
         updates.push("hospital_id = ?");
@@ -7994,18 +8327,20 @@ async function startServer() {
   let verificationCodes: Record<string, string> = {}; // In-memory fallback
 
   app.post("/api/verify/send", async (req, res) => {
-    const { phone, channel = "sms" } = req.body; // Default channel will be 'sms'
-    if (!phone) return res.status(400).json({ error: "Phone is required" });
+    const { phone, channel = "email" } = req.body; // Default channel will be 'email'
+    if (!phone) return res.status(400).json({ error: "Email/Phone is required" });
 
-    // Ensure phone has a leading + for Twilio (E.164 format)
-    let formattedPhone = phone.startsWith("+") ? phone : `+${phone}`;
+    let formattedPhone = phone;
+    if (channel !== "email") {
+      formattedPhone = phone.startsWith("+") ? phone : `+${phone}`;
+    }
     const verifyTo = formattedPhone;
 
     try {
       const client = getTwilio();
       const serviceSid = process.env.TWILIO_VERIFY_SERVICE_SID;
 
-      if (client && serviceSid) {
+      if (client && serviceSid && channel !== "email") {
         // Use real Twilio Verify API
         await client.verify.v2
           .services(serviceSid)
@@ -8016,18 +8351,28 @@ async function startServer() {
           message: `Verification code sent via ${channel}!`,
         });
       } else {
-        // Generate a random 4 digit code for fallback
+        // Generate a random 4 digit code
         const code = Math.floor(1000 + Math.random() * 9000).toString();
         verificationCodes[formattedPhone] = code;
 
+        if (channel === "email") {
+          const emailHtml = getEmailLayout(
+             `<h2 style="color: #1e40af; margin-bottom: 20px;">Your Verification Code</h2>
+              <p style="font-size: 16px; color: #475569; margin-bottom: 10px;">Please use the following code to verify your account:</p>
+              <div style="font-size: 24px; color: #2563eb; font-weight: 800; font-family: monospace; letter-spacing: 2px; background: #f1f5f9; padding: 10px; border-radius: 8px; display: inline-block;">${code}</div>`,
+             "https://storage.googleapis.com/hims-assets/logo.png"
+          );
+          await sendNodeMail(formattedPhone, "Your Verification Code", emailHtml);
+        }
+
         console.log(
-          `[Twilio API Mock] Sending code ${code} to ${formattedPhone} via ${channel}`,
+          `[Mock Verify API] Sending code ${code} to ${formattedPhone} via ${channel}`,
         );
         // Simulating a delay
         await new Promise((resolve) => setTimeout(resolve, 800));
         res.json({
           success: true,
-          message: "Code sent (check server logs for the code in demo mode)",
+          message: "Code sent to your email",
           demoCode: code,
         });
       }
@@ -8043,18 +8388,21 @@ async function startServer() {
   });
 
   app.post("/api/verify/confirm", async (req, res) => {
-    const { userId, phone, code, channel = "sms" } = req.body;
+    const { userId, phone, code, channel = "email" } = req.body;
     if (!phone || !code)
-      return res.status(400).json({ error: "phone, and code are required" });
+      return res.status(400).json({ error: "phone/email, and code are required" });
 
-    let formattedPhone = phone.startsWith("+") ? phone : `+${phone}`;
+    let formattedPhone = phone;
+    if (channel !== "email") {
+      formattedPhone = phone.startsWith("+") ? phone : `+${phone}`;
+    }
     const verifyTo = formattedPhone;
 
     try {
       const client = getTwilio();
       const serviceSid = process.env.TWILIO_VERIFY_SERVICE_SID;
 
-      if (client && serviceSid) {
+      if (client && serviceSid && channel !== "email") {
         const verificationCheck = await client.verify.v2
           .services(serviceSid)
           .verificationChecks.create({ to: verifyTo, code: code });
@@ -8320,7 +8668,7 @@ async function startServer() {
     }
   });
 
-  // Gemini AI HIMS Copilot Endpoint
+  // Gemini AI Salamat Copilot Endpoint
   app.post("/api/gemini/copilot", async (req, res) => {
     try {
       const { prompt, context } = req.body;
@@ -8329,10 +8677,10 @@ async function startServer() {
       }
 
       const combinedPrompt = `
-        You are a highly premium AI Medical & HIMS Diagnostic Copilot running inside a luxurious full-suite Healthcare Information Management System (HIMS).
+        You are a highly premium AI Medical & Diagnostic Copilot running inside the luxurious full-suite Salamat Healthcare Information Platform.
         Analyze the request below and respond with highly detailed, clinical-grade professional insights, structured summaries, and helpful steps.
         
-        Context Data (HIMS system data for Patient, Asset, or Clinical consultation):
+        Context Data (Salamat system data for Patient, Asset, or Clinical consultation):
         ${JSON.stringify(context || {})}
         
         User Query:

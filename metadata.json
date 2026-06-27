@@ -1,6 +1,6 @@
 {
-  "name": "HIMS Pro - by Zualnoon",
-  "description": "Bilingual Hospital Management System (HIMS) with integrated pharmacy, lab, and workshop management, featuring automated admin credentials and barcode generation.",
+  "name": "سلامات | Salamat",
+  "description": "Bilingual Hospital Management System named Salamat with integrated pharmacy, lab, and workshop management, featuring automated admin credentials and barcode generation.",
   "requestFramePermissions": [
     "camera",
     "microphone",
