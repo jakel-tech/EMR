@@ -21,7 +21,7 @@ import { v4 as uuidv4 } from "uuid";
 import { GoogleGenAI } from "@google/genai";
 import { initializeApp } from "firebase/app";
 import {
-  getFirestore,
+  initializeFirestore,
   doc,
   setDoc,
   getDoc,
@@ -313,7 +313,10 @@ if (fs.existsSync(firebaseConfigPath)) {
     const databaseId =
       firebaseConfigObj.firestoreDatabaseId ||
       "ai-studio-9830d766-abc0-407c-8f6e-71c5da588f72";
-    firestoreDb = getFirestore(firebaseApp, databaseId);
+    firestoreDb = initializeFirestore(firebaseApp, {
+      experimentalForceLongPolling: true,
+      useFetchStreams: false,
+    } as any, databaseId);
     console.log("Firebase initialized in server");
   } catch (err) {
     console.error("Firebase server init error:", err);
@@ -721,6 +724,39 @@ async function runMigrationsAndSeed(targetDb: Database) {
     const colNames = tableInfo.map((c: any) => c.name);
     if (!colNames.includes("national_id")) {
       await db.run("ALTER TABLE patients ADD COLUMN national_id TEXT");
+    }
+    if (!colNames.includes("is_verified")) {
+      await db.run("ALTER TABLE patients ADD COLUMN is_verified BOOLEAN DEFAULT 0");
+    }
+    if (!colNames.includes("insurance_provider")) {
+      await db.run("ALTER TABLE patients ADD COLUMN insurance_provider TEXT");
+    }
+    if (!colNames.includes("insurance_policy_number")) {
+      await db.run("ALTER TABLE patients ADD COLUMN insurance_policy_number TEXT");
+    }
+    if (!colNames.includes("insurance_copay_percent")) {
+      await db.run("ALTER TABLE patients ADD COLUMN insurance_copay_percent REAL DEFAULT 100");
+    }
+    if (!colNames.includes("insurance_expiry")) {
+      await db.run("ALTER TABLE patients ADD COLUMN insurance_expiry TEXT");
+    }
+    if (!colNames.includes("insurance_plan_name")) {
+      await db.run("ALTER TABLE patients ADD COLUMN insurance_plan_name TEXT");
+    }
+    if (!colNames.includes("balance")) {
+      await db.run("ALTER TABLE patients ADD COLUMN balance REAL DEFAULT 0");
+    }
+    if (!colNames.includes("avatar")) {
+      await db.run("ALTER TABLE patients ADD COLUMN avatar TEXT");
+    }
+    if (!colNames.includes("incomplete_profile")) {
+      await db.run("ALTER TABLE patients ADD COLUMN incomplete_profile INTEGER DEFAULT 0");
+    }
+    if (!colNames.includes("visitType")) {
+      await db.run("ALTER TABLE patients ADD COLUMN visitType TEXT");
+    }
+    if (!colNames.includes("telegram_chat_id")) {
+      await db.run("ALTER TABLE patients ADD COLUMN telegram_chat_id TEXT");
     }
   } catch (e) {}
 

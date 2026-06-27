@@ -29,7 +29,8 @@ const app = initializeApp(firebaseConfig);
 const databaseId = (firebaseConfig as any).firestoreDatabaseId || "ai-studio-9830d766-abc0-407c-8f6e-71c5da588f72";
 export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
-}, databaseId);
+  useFetchStreams: false,
+} as any, databaseId);
 export const auth = getAuth(app);
 
 // Initialize the Google Auth Provider with Google Drive scopes
