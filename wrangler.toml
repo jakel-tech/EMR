@@ -1,0 +1,23 @@
+# Cloudflare Wrangler Configuration File
+# This file enables deployment of your project to Cloudflare Pages or Cloudflare Workers.
+
+name = "salamat-hims"
+compatibility_date = "2026-06-27"
+compatibility_flags = [ "nodejs_compat" ]
+
+# Configuration for Cloudflare Pages (Recommended for the Vite React Frontend)
+[pages_build_config]
+build_command = "npm run build"
+destination_dir = "dist"
+
+# Configuration for Cloudflare D1 Database (If migrating from local SQLite to Serverless SQLite on Cloudflare)
+# To use this, you would run: npx wrangler d1 create salamat-db
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "salamat-db"
+# database_id = "YOUR_D1_DATABASE_ID_HERE"
+
+# Environment Variables for Cloudflare
+[vars]
+# Add your environment variables here
+# GEMINI_API_KEY = "your_api_key"
