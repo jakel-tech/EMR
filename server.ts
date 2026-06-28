@@ -2696,7 +2696,28 @@ async function startServer() {
     next();
   });
   app.use(express.json({ limit: "10mb" }));
-  app.use(cors());
+  app.use(
+    cors({
+      origin: (origin, callback) => {
+        if (!origin) {
+          callback(null, true);
+          return;
+        }
+        try {
+          const parsedUrl = new URL(origin);
+          const hostname = parsedUrl.hostname;
+          if (hostname === "jakel.biz" || hostname.endsWith(".jakel.biz")) {
+            callback(null, origin);
+            return;
+          }
+        } catch (e) {
+          // Ignore URL parsing error
+        }
+        callback(null, origin);
+      },
+      credentials: true,
+    })
+  );
   app.use(
     helmet({
       contentSecurityPolicy: false,
@@ -2731,7 +2752,7 @@ async function startServer() {
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
     res.setHeader(
       "Content-Security-Policy",
-      "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https: wss:; object-src 'none'; frame-ancestors 'self' https://ai.studio https://*.google.com https://*.run.app https://*.gitpod.io http://localhost:*",
+      "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https: wss:; object-src 'none'; frame-ancestors 'self' https://ai.studio https://*.google.com https://*.run.app https://*.gitpod.io http://localhost:* https://jakel.biz https://*.jakel.biz http://jakel.biz http://*.jakel.biz",
     );
     res.setHeader("Referrer-Policy", "no-referrer-when-downgrade");
     next();
