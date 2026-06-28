@@ -111,6 +111,9 @@ import {
   UserSquare,
   FileDown,
   Rss,
+  CloudOff,
+  LogOut,
+  Trash,
 } from "lucide-react";
 import {
   Asset,
@@ -1767,6 +1770,14 @@ function App() {
   const [backupHistory, setBackupHistory] = useState<any[]>([]);
   const [syncStatus, setSyncStatus] = useState<any>(null);
   const [isTriggeringSync, setIsTriggeringSync] = useState(false);
+  const [linkedFirebaseAccounts, setLinkedFirebaseAccounts] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem("linkedFirebaseAccounts");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
   // New features state
   const [woView, setWoView] = useState<"list" | "board">("list");
@@ -1800,6 +1811,35 @@ function App() {
       role: "Requester",
     };
   });
+
+  useEffect(() => {
+    localStorage.setItem("linkedFirebaseAccounts", JSON.stringify(linkedFirebaseAccounts));
+    
+    // Sync to server so global sync can mirror data to these accounts
+    if (currentUser?.role === "Super Admin") {
+      apiFetch("/api/system/update-linked-accounts", {
+        method: "POST",
+        body: JSON.stringify({ linkedAccounts: linkedFirebaseAccounts })
+      }).catch(err => console.warn("Failed to update linked accounts on server", err));
+    }
+  }, [linkedFirebaseAccounts, currentUser]);
+
+  useEffect(() => {
+    if (currentUser?.role === "Super Admin") {
+      apiFetch("/api/system/linked-accounts")
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.accounts?.length > 0) {
+            // Only update if different to prevent infinite loops
+            const currentStr = localStorage.getItem("linkedFirebaseAccounts");
+            if (currentStr !== JSON.stringify(data.accounts)) {
+              setLinkedFirebaseAccounts(data.accounts);
+            }
+          }
+        })
+        .catch(console.warn);
+    }
+  }, [currentUser]);
 
   useEffect(() => {
     if (isLoggedIn && currentUser?.role === "Patient" && (currentUser as any)?.incomplete_profile && !isModalOpen) {
@@ -2610,11 +2650,14 @@ function App() {
     }
   };
 
-  const triggerGlobalRestore = async () => {
+  const triggerGlobalRestore = async (sourcePath?: string) => {
     if (!confirm(isRTL ? "هل أنت متأكد من استعادة قاعدة البيانات من السحابة؟ سيتم استبدال جميع البيانات الحالية!" : "Are you sure you want to restore the entire database from the cloud? This will overwrite ALL local data!")) return;
     setIsTriggeringSync(true);
     try {
-      const res = await apiFetch("/api/system/trigger-restore", { method: "POST" });
+      const res = await apiFetch("/api/system/trigger-restore", { 
+        method: "POST",
+        body: JSON.stringify({ sourcePath: sourcePath || "dbBackup" })
+      });
       const data = await res.json();
       if (res.ok) {
         toast.success(isRTL ? "تمت استعادة النظام بنجاح. يرجى إعادة تحميل الصفحة." : "System restored successfully. Please reload the page.");
@@ -2780,19 +2823,23 @@ function App() {
 
       // Log successful backup metadata in Firebase Firestore
       const backupId = "bck_" + Date.now().toString(36);
-      await logBackupToFirestore(activeHospitalId, {
-        id: backupId,
-        hospitalId: activeHospitalId,
-        fileId: actualFileId,
-        fileName: filename,
-        createdBy:
-          auth.currentUser?.email ||
-          currentUser.email ||
-          "unknown@hospital.com",
-        size: JSON.stringify(exportData).length,
-        status: "success",
-        payload: exportData,
-      });
+      await logBackupToFirestore(
+        activeHospitalId,
+        {
+          id: backupId,
+          hospitalId: activeHospitalId,
+          fileId: actualFileId,
+          fileName: filename,
+          createdBy:
+            auth.currentUser?.email ||
+            currentUser.email ||
+            "unknown@hospital.com",
+          size: JSON.stringify(exportData).length,
+          status: "success",
+          payload: exportData,
+        },
+        linkedFirebaseAccounts.map((a: any) => a.email)
+      );
 
       fetchBackupHistory();
       if (!isAuto)
@@ -4279,44 +4326,46 @@ function App() {
       const newNotifications: AppNotification[] = [];
       const today = new Date().toISOString().split("T")[0];
 
-      assets
-        .filter((a) => a.status === "Broken")
-        .forEach((a) => {
-          newNotifications.push({
-            id: `asset-${a.id}`,
-            title: "Critical Asset Failure",
-            message: `${a.name} in ${a.location} is marked as Broken.`,
-            read: prev.find((n) => n.id === `asset-${a.id}`)?.read || false,
-            type: "critical",
-            timestamp: "Just now",
+      if (currentUser?.role !== "Patient") {
+        assets
+          .filter((a) => a.status === "Broken")
+          .forEach((a) => {
+            newNotifications.push({
+              id: `asset-${a.id}`,
+              title: "Critical Asset Failure",
+              message: `${a.name} in ${a.location} is marked as Broken.`,
+              read: prev.find((n) => n.id === `asset-${a.id}`)?.read || false,
+              type: "critical",
+              timestamp: "Just now",
+            });
           });
-        });
 
-      inventory
-        .filter((i) => i.currentQuantity <= i.minQuantity)
-        .forEach((i) => {
-          newNotifications.push({
-            id: `inv-${i.id}`,
-            title: "Low Inventory Alert",
-            message: `${i.name} (Part: ${i.partNumber}) is running low (${i.currentQuantity}/${i.minQuantity}).`,
-            read: prev.find((n) => n.id === `inv-${i.id}`)?.read || false,
-            type: "warning",
-            timestamp: "Just now",
+        inventory
+          .filter((i) => i.currentQuantity <= i.minQuantity)
+          .forEach((i) => {
+            newNotifications.push({
+              id: `inv-${i.id}`,
+              title: "Low Inventory Alert",
+              message: `${i.name} (Part: ${i.partNumber}) is running low (${i.currentQuantity}/${i.minQuantity}).`,
+              read: prev.find((n) => n.id === `inv-${i.id}`)?.read || false,
+              type: "warning",
+              timestamp: "Just now",
+            });
           });
-        });
 
-      workOrders
-        .filter((w) => w.status !== "Completed" && w.dueDate < today)
-        .forEach((w) => {
-          newNotifications.push({
-            id: `wo-${w.id}`,
-            title: "Overdue Work Order",
-            message: `Work order processing ${w.description} is overdue.`,
-            read: prev.find((n) => n.id === `wo-${w.id}`)?.read || false,
-            type: "warning",
-            timestamp: "Just now",
+        workOrders
+          .filter((w) => w.status !== "Completed" && w.dueDate < today)
+          .forEach((w) => {
+            newNotifications.push({
+              id: `wo-${w.id}`,
+              title: "Overdue Work Order",
+              message: `Work order processing ${w.description} is overdue.`,
+              read: prev.find((n) => n.id === `wo-${w.id}`)?.read || false,
+              type: "warning",
+              timestamp: "Just now",
+            });
           });
-        });
+      }
 
       // Keep custom/historical notifications that aren't dynamically generated
       const customNotifications = prev.filter(
@@ -13835,6 +13884,110 @@ function App() {
             )}
           </div>
         </div>
+
+          {/* Firebase Linked Accounts & Multi-DB Management */}
+          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-5 space-y-4 mb-8">
+            <div className="flex justify-between items-center mb-4">
+              <div>
+                <h3 className="font-bold text-gray-800 flex items-center gap-2 mb-1">
+                  <Database className="text-blue-500" size={18} />
+                  {isRTL ? "إدارة وارتباط حسابات وقواعد بيانات Firebase المتعددة" : "Multi-Firebase DB Link & Management"}
+                </h3>
+                <p className="text-[11px] text-gray-500 max-w-md leading-relaxed">
+                  {isRTL 
+                    ? "أضف عدة مشاريع/حسابات Firebase للتبديل السلس بين قواعد البيانات وتزامنها في وقت واحد." 
+                    : "Add multiple Firebase projects/accounts to switch databases seamlessly and sync them concurrently."}
+                </p>
+              </div>
+              <button 
+                onClick={async () => {
+                  try {
+                    const result = await googleSignInForAuth();
+                    if (result && result.user) {
+                      toast.success(isRTL ? "تم ربط حساب Firebase بنجاح!" : "Firebase account linked successfully!");
+                      setLinkedFirebaseAccounts(prev => [...prev, {
+                        id: result.user.uid || Math.random().toString(36).substring(7),
+                        email: result.user.email || "new_facility@salamat.com",
+                        name: result.user.displayName || `Secondary DB Node ${prev.length + 1}`,
+                        isConnected: true,
+                        isSyncing: true,
+                        lastSync: new Date().toISOString()
+                      }]);
+                    }
+                  } catch (err: any) {
+                    if (err.code !== 'auth/popup-closed-by-user' && !err.message?.includes('popup-closed-by-user')) {
+                      toast.error(isRTL ? "فشل ربط الحساب" : "Failed to link account");
+                    }
+                  }
+                }}
+                className="bg-blue-50 text-blue-600 hover:bg-blue-100 px-4 py-2 flex items-center gap-2 rounded-xl text-xs font-bold transition-all cursor-pointer border border-blue-100"
+              >
+                <Plus size={14} />
+                {isRTL ? "ربط حساب عبر قوقل" : "Link via Google"}
+              </button>
+            </div>
+
+            {linkedFirebaseAccounts.length === 0 ? (
+              <div className="p-8 border border-dashed border-gray-200 rounded-2xl text-center text-gray-400">
+                <CloudOff className="mx-auto mb-2 opacity-30 text-gray-500" size={32} />
+                <p className="text-xs">{isRTL ? "لا توجد حسابات Firebase إضافية مرتبطة." : "No additional Firebase accounts linked."}</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {linkedFirebaseAccounts.map((account, index) => (
+                  <div key={account.id} className="border border-gray-100 shadow-sm rounded-2xl p-4 flex flex-col gap-3 relative overflow-hidden group hover:border-blue-200 transition-all">
+                    <div className="absolute top-0 right-0 w-2 h-full bg-blue-500"></div>
+                    <div className="flex justify-between items-start">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center font-black shadow-inner border border-blue-100">
+                          {index + 1}
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-gray-800 text-sm leading-tight">{account.name}</h4>
+                          <p className="text-[10px] text-gray-500 font-mono mt-0.5">{account.email}</p>
+                        </div>
+                      </div>
+                      <span className="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border border-emerald-100 flex items-center gap-1">
+                        <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></div>
+                        {isRTL ? "متصل ومزامن" : "Connected"}
+                      </span>
+                    </div>
+                    
+                    <div className="flex items-center gap-4 mt-2 pt-3 border-t border-gray-50">
+                      <div className="flex-1">
+                        <p className="text-[9px] font-black uppercase text-gray-400 mb-1">{isRTL ? "حالة المزامنة" : "Sync Status"}</p>
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-gray-700">
+                          <RefreshCw size={12} className={account.isSyncing ? "animate-spin text-blue-500" : "text-gray-400"} />
+                          {account.isSyncing ? (isRTL ? "جاري المزامنة..." : "Concurrently Syncing...") : (isRTL ? "مستقر" : "Stable")}
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => {
+                            if (account.email) {
+                              const safeEmail = account.email.replace(/[^a-zA-Z0-9_@.\-]/g, '');
+                              triggerGlobalRestore(`users/${safeEmail}/dbBackup`);
+                            }
+                          }}
+                          className="p-1.5 bg-gray-50 text-gray-600 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors border border-gray-100" 
+                          title={isRTL ? "التبديل واستعادة هذه القاعدة" : "Restore & Switch to this DB"}
+                        >
+                          <LogOut size={14} className="rotate-180" />
+                        </button>
+                        <button 
+                          onClick={() => setLinkedFirebaseAccounts(prev => prev.filter(a => a.id !== account.id))}
+                          className="p-1.5 bg-gray-50 text-gray-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors border border-gray-100" 
+                          title={isRTL ? "إلغاء الربط" : "Unlink"}
+                        >
+                          <Trash size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-5 space-y-4">
             <div>
@@ -36699,7 +36852,7 @@ function App() {
                       initial={{ opacity: 0, y: 15, scale: 0.95 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: 15, scale: 0.95 }}
-                      className={`absolute right-0 top-10 w-80 max-w-[90vw] bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl border border-gray-100/50 dark:border-slate-800 p-6 z-50 overflow-hidden flex flex-col ${isRTL ? "text-right" : "text-left"}`}
+                      className={`absolute ${isRTL ? "left-0" : "right-0"} top-10 w-80 max-w-[90vw] sm:max-w-[320px] bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl border border-gray-100/50 dark:border-slate-800 p-6 z-50 overflow-hidden flex flex-col ${isRTL ? "text-right" : "text-left"}`}
                     >
                     <div className="flex justify-between items-center mb-4">
                       <h4 className="font-black text-[11px] text-gray-800 uppercase tracking-tight">

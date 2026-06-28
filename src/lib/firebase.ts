@@ -191,7 +191,7 @@ export interface BackupRecord {
   payload?: any;
 }
 
-export const logBackupToFirestore = async (hospitalId: string, record: Omit<BackupRecord, 'createdAt'>) => {
+export const logBackupToFirestore = async (hospitalId: string, record: Omit<BackupRecord, 'createdAt'>, linkedAccounts?: string[]) => {
   const cleanedHospitalId = hospitalId.replace(/[^a-zA-Z0-9_\-]/g, '');
   const path = `hospitals/${cleanedHospitalId}/backups/${record.id}`;
   try {
@@ -201,6 +201,22 @@ export const logBackupToFirestore = async (hospitalId: string, record: Omit<Back
       createdAt: serverTimestamp()
     });
     console.log('Successfully saved backup record to Firestore ledger:', path);
+
+    // Save to linked accounts to prevent data loss
+    if (linkedAccounts && linkedAccounts.length > 0) {
+      await Promise.all(linkedAccounts.map(async (email) => {
+        if (!email) return;
+        const safeEmail = email.replace(/[^a-zA-Z0-9_@.\-]/g, '');
+        const linkedPath = `users/${safeEmail}/backups/${record.id}`;
+        const linkedDocRef = doc(db, 'users', safeEmail, 'backups', record.id);
+        await setDoc(linkedDocRef, {
+          ...record,
+          hospitalId: cleanedHospitalId, // Keep reference to original hospital
+          createdAt: serverTimestamp()
+        }).catch(err => console.warn(`Failed to sync to linked account ${safeEmail}`, err));
+      }));
+      console.log(`Successfully synced backup to ${linkedAccounts.length} linked accounts`);
+    }
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
   }

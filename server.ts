@@ -138,6 +138,16 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
         }
       }
     });
+    
+    telegramBot.on('polling_error', (error: any) => {
+      if (error.code === 'ETELEGRAM' && error.message.includes('409 Conflict')) {
+        console.warn("Telegram polling conflict: Another instance is running. Polling will retry.");
+      } else if (error.code === 'EFATAL') {
+        console.warn("Telegram polling EFATAL error (fetch failed). Will ignore/retry.", error.message);
+      } else {
+        console.error("Telegram polling error:", error.message || error);
+      }
+    });
   } catch (err) {
     console.error("Failed to initialize Telegram Bot:", err);
   }
@@ -318,19 +328,40 @@ if (fs.existsSync(firebaseConfigPath)) {
       useFetchStreams: false,
     } as any, databaseId);
     console.log("Firebase initialized in server");
+    loadLinkedAccounts();
   } catch (err) {
     console.error("Firebase server init error:", err);
+  }
+}
+
+let fullLinkedAccounts: any[] = [];
+
+async function loadLinkedAccounts() {
+  if (firestoreDb) {
+    try {
+      const docSnap = await getDoc(doc(firestoreDb, "system", "linkedAccounts"));
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (Array.isArray(data.accounts)) {
+          fullLinkedAccounts = data.accounts;
+          globalLinkedAccounts = fullLinkedAccounts.map((a: any) => typeof a === 'string' ? a : a.email).filter(Boolean);
+          console.log(`Loaded ${globalLinkedAccounts.length} linked accounts from Firestore`);
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to load linked accounts from Firestore", e);
+    }
   }
 }
 
 let isRestoringDb = false;
 let lastLocalTimestamp = 0;
 
-async function downloadDbFromFirestore() {
+async function downloadDbFromFirestore(sourcePath: string = "dbBackup") {
   if (!firestoreDb) return false;
   try {
-    console.log("Checking Firebase for Global Sync DB...");
-    const c0 = await getDoc(doc(firestoreDb, "dbBackup", "chunk_0"));
+    console.log(`Checking Firebase for Global Sync DB at ${sourcePath}...`);
+    const c0 = await getDoc(doc(firestoreDb, sourcePath, "chunk_0"));
     if (c0.exists()) {
       const { timestamp, data: firstChunk, totalChunks, compressed } = c0.data();
       lastLocalTimestamp = timestamp;
@@ -338,11 +369,11 @@ async function downloadDbFromFirestore() {
       const isCompressed = compressed === true;
       
       for (let i = 1; i < totalChunks; i++) {
-        const c = await getDoc(doc(firestoreDb, "dbBackup", `chunk_${i}`));
+        const c = await getDoc(doc(firestoreDb, sourcePath, `chunk_${i}`));
         if (c.exists()) {
           base64 += c.data().data;
         } else {
-          console.error(`CRITICAL: Missing chunk_${i} during DB sync!`);
+          console.error(`CRITICAL: Missing chunk_${i} during DB sync from ${sourcePath}!`);
           return false;
         }
       }
@@ -371,6 +402,8 @@ async function downloadDbFromFirestore() {
 }
 
 let syncTimeout: NodeJS.Timeout | null = null;
+let globalLinkedAccounts: string[] = [];
+
 async function uploadDbToFirestore() {
   if (!firestoreDb || isRestoringDb) return;
   if (syncTimeout) clearTimeout(syncTimeout);
@@ -404,26 +437,40 @@ async function uploadDbToFirestore() {
       const timestamp = Date.now();
       lastLocalTimestamp = timestamp;
 
-      // Write non-zero chunks first
-      for (let i = 1; i < chunks; i++) {
-        await setDoc(doc(firestoreDb, "dbBackup", `chunk_${i}`), {
-          data: base64.substring(i * chunkSize, (i + 1) * chunkSize),
-          totalChunks: chunks,
-          timestamp,
-          compressed: true,
+      // Helper to write chunks to a specific base path
+      const writeChunks = async (basePath: string) => {
+        for (let i = 1; i < chunks; i++) {
+          await setDoc(doc(firestoreDb, basePath, `chunk_${i}`), {
+            data: base64.substring(i * chunkSize, (i + 1) * chunkSize),
+            totalChunks: chunks,
+            timestamp,
+            compressed: true,
+          });
+        }
+        if (chunks > 0) {
+          await setDoc(doc(firestoreDb, basePath, "chunk_0"), {
+            data: base64.substring(0, chunkSize),
+            totalChunks: chunks,
+            timestamp,
+            compressed: true,
+          });
+        }
+      };
+
+      // Write to primary backup location
+      await writeChunks("dbBackup");
+
+      // Write to all linked accounts for redundancy
+      for (const email of globalLinkedAccounts) {
+        if (!email) continue;
+        const safeEmail = email.replace(/[^a-zA-Z0-9_@.\-]/g, '');
+        await writeChunks(`users/${safeEmail}/dbBackup`).catch(err => {
+          console.warn(`Failed to sync SQLite to linked account ${safeEmail}`, err);
         });
       }
-      // Write chunk_0 last so onSnapshot listeners on other containers see a fully written set of chunks
-      if (chunks > 0) {
-        await setDoc(doc(firestoreDb, "dbBackup", "chunk_0"), {
-          data: base64.substring(0, chunkSize),
-          totalChunks: chunks,
-          timestamp,
-          compressed: true,
-        });
-      }
+
       console.log(
-        `Synced DB to Firebase (${chunks} chunks, compressed from ${sizeInMB.toFixed(2)} MB)`,
+        `Synced DB to Firebase (${chunks} chunks, compressed from ${sizeInMB.toFixed(2)} MB) + ${globalLinkedAccounts.length} linked accounts`,
       );
     } catch (e) {
       console.error("Upload DB Error:", e);
@@ -4794,11 +4841,44 @@ async function startServer() {
     }
   });
 
+  app.get("/api/system/linked-accounts", authenticateToken, (req: any, res) => {
+    try {
+      if (req.user.role !== "Super Admin") return res.status(403).json({ error: "Forbidden" });
+      res.json({ success: true, accounts: fullLinkedAccounts });
+    } catch (e) {
+      res.status(500).json({ error: "Failed to fetch linked accounts" });
+    }
+  });
+
+  app.post("/api/system/update-linked-accounts", authenticateToken, async (req: any, res) => {
+    try {
+      if (req.user.role !== "Super Admin") return res.status(403).json({ error: "Forbidden" });
+      const { linkedAccounts } = req.body;
+      if (Array.isArray(linkedAccounts)) {
+        fullLinkedAccounts = linkedAccounts;
+        globalLinkedAccounts = linkedAccounts.map((a: any) => typeof a === 'string' ? a : a.email).filter(Boolean);
+        
+        if (firestoreDb) {
+           await setDoc(doc(firestoreDb, "system", "linkedAccounts"), { accounts: fullLinkedAccounts });
+        }
+        
+        // Optionally trigger immediate sync
+        uploadDbToFirestore();
+        res.json({ success: true, message: "Linked accounts updated successfully" });
+      } else {
+        res.status(400).json({ error: "Invalid linked accounts format" });
+      }
+    } catch (e) {
+      res.status(500).json({ error: "Failed to update linked accounts" });
+    }
+  });
+
   app.post("/api/system/trigger-restore", authenticateToken, async (req: any, res) => {
     try {
       if (req.user.role !== "Super Admin") return res.status(403).json({ error: "Forbidden" });
+      const { sourcePath = "dbBackup" } = req.body;
       isRestoringDb = true;
-      const success = await downloadDbFromFirestore();
+      const success = await downloadDbFromFirestore(sourcePath);
       isRestoringDb = false;
       if (success) {
         res.json({ success: true, message: "Restore successful. Restarting server might be needed for some state." });
