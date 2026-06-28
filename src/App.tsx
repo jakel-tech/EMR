@@ -1770,6 +1770,8 @@ function App() {
   const [backupHistory, setBackupHistory] = useState<any[]>([]);
   const [syncStatus, setSyncStatus] = useState<any>(null);
   const [isTriggeringSync, setIsTriggeringSync] = useState(false);
+  const [showRemixInput, setShowRemixInput] = useState(false);
+  const [remixIdInput, setRemixIdInput] = useState("");
   const [linkedFirebaseAccounts, setLinkedFirebaseAccounts] = useState<any[]>(() => {
     try {
       const saved = localStorage.getItem("linkedFirebaseAccounts");
@@ -2650,13 +2652,13 @@ function App() {
     }
   };
 
-  const triggerGlobalRestore = async (sourcePath?: string) => {
+  const triggerGlobalRestore = async (sourcePath?: string, targetDbId?: string) => {
     if (!confirm(isRTL ? "هل أنت متأكد من استعادة قاعدة البيانات من السحابة؟ سيتم استبدال جميع البيانات الحالية!" : "Are you sure you want to restore the entire database from the cloud? This will overwrite ALL local data!")) return;
     setIsTriggeringSync(true);
     try {
       const res = await apiFetch("/api/system/trigger-restore", { 
         method: "POST",
-        body: JSON.stringify({ sourcePath: sourcePath || "dbBackup" })
+        body: JSON.stringify({ sourcePath: sourcePath || "dbBackup", targetDbId })
       });
       const data = await res.json();
       if (res.ok) {
@@ -3538,11 +3540,11 @@ function App() {
           : `Logged in via Google: ${user.displayName}`,
       );
     } catch (err: any) {
-      console.error("Google Login Detailed Error:", err);
+      console.warn("Google Login Cancelled or Error:", err.message);
       if (err.code === "auth/popup-closed-by-user" || err.message?.includes("popup-closed-by-user")) {
-        toast.error(isRTL ? "تم إغلاق نافذة تسجيل الدخول. يرجى المحاولة مرة أخرى أو فتح التطبيق في نافذة مستقلة." : "Login popup was closed. Please try again or open the app in a new tab.");
+        toast.info(isRTL ? "تم إلغاء تسجيل الدخول أو إغلاق النافذة." : "Login was cancelled or popup closed.");
       } else if (err.code === "auth/popup-blocked" || err.message?.includes("popup-blocked")) {
-        toast.error(isRTL ? "تم حظر نافذة تسجيل الدخول المنبثقة. يرجى السماح بالنوافذ المنبثقة أو فتح التطبيق في نافذة مستقلة." : "Login popup was blocked. Please allow popups or open the app in a new tab.");
+        toast.info(isRTL ? "تم حظر نافذة تسجيل الدخول المنبثقة. يرجى السماح بالنوافذ المنبثقة أو فتح التطبيق في نافذة مستقلة." : "Login popup was blocked. Please allow popups or open the app in a new tab.");
       } else {
         toast.error(err.message || (isRTL ? "خطأ في مصادقة Google" : "Google Auth Error"));
       }
@@ -13899,32 +13901,120 @@ function App() {
                     : "Add multiple Firebase projects/accounts to switch databases seamlessly and sync them concurrently."}
                 </p>
               </div>
-              <button 
-                onClick={async () => {
-                  try {
-                    const result = await googleSignInForAuth();
-                    if (result && result.user) {
-                      toast.success(isRTL ? "تم ربط حساب Firebase بنجاح!" : "Firebase account linked successfully!");
-                      setLinkedFirebaseAccounts(prev => [...prev, {
-                        id: result.user.uid || Math.random().toString(36).substring(7),
-                        email: result.user.email || "new_facility@salamat.com",
-                        name: result.user.displayName || `Secondary DB Node ${prev.length + 1}`,
-                        isConnected: true,
-                        isSyncing: true,
-                        lastSync: new Date().toISOString()
-                      }]);
+              <div className="flex gap-2 items-center">
+                {showRemixInput ? (
+                  <div className="flex items-center gap-2 bg-indigo-50 px-2 py-1.5 rounded-xl border border-indigo-100">
+                    <input 
+                      type="text" 
+                      value={remixIdInput}
+                      onChange={(e) => setRemixIdInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          if (remixIdInput.trim()) {
+                            setLinkedFirebaseAccounts(prev => [...prev, {
+                              id: Math.random().toString(36).substring(7),
+                              email: remixIdInput.trim(),
+                              name: `Remix Instance`,
+                              type: 'remix',
+                              dbId: remixIdInput.trim(),
+                              isConnected: true,
+                              isSyncing: true,
+                              lastSync: new Date().toISOString()
+                            }]);
+                            toast.success(isRTL ? "تم ربط النسخة بنجاح!" : "Remix instance linked successfully!");
+                            setShowRemixInput(false);
+                            setRemixIdInput("");
+                          } else {
+                            setShowRemixInput(false);
+                          }
+                        } else if (e.key === 'Escape') {
+                          setShowRemixInput(false);
+                          setRemixIdInput("");
+                        }
+                      }}
+                      placeholder={isRTL ? "معرف النسخة (Database ID)" : "Database ID"}
+                      className="bg-white border border-indigo-200 rounded-lg px-2 py-1 text-xs outline-none focus:border-indigo-400"
+                      autoFocus
+                    />
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        if (remixIdInput.trim()) {
+                          setLinkedFirebaseAccounts(prev => [...prev, {
+                            id: Math.random().toString(36).substring(7),
+                            email: remixIdInput.trim(),
+                            name: `Remix Instance`,
+                            type: 'remix',
+                            dbId: remixIdInput.trim(),
+                            isConnected: true,
+                            isSyncing: true,
+                            lastSync: new Date().toISOString()
+                          }]);
+                          toast.success(isRTL ? "تم ربط النسخة بنجاح!" : "Remix instance linked successfully!");
+                          setShowRemixInput(false);
+                          setRemixIdInput("");
+                        } else {
+                          setShowRemixInput(false);
+                        }
+                      }}
+                      className="bg-indigo-500 text-white hover:bg-indigo-600 p-1 rounded-md transition-colors"
+                    >
+                      <Check size={14} />
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setShowRemixInput(false);
+                        setRemixIdInput("");
+                      }}
+                      className="bg-gray-200 text-gray-600 hover:bg-gray-300 p-1 rounded-md transition-colors"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <button 
+                    type="button"
+                    onClick={() => setShowRemixInput(true)}
+                    className="bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-4 py-2 flex items-center gap-2 rounded-xl text-xs font-bold transition-all cursor-pointer border border-indigo-100"
+                  >
+                    <Plus size={14} />
+                    {isRTL ? "ربط نسخة Remix" : "Link Remix"}
+                  </button>
+                )}
+                <button 
+                  onClick={async () => {
+                    try {
+                      const result = await googleSignInForAuth();
+                      if (result && result.user) {
+                        setLinkedFirebaseAccounts(prev => {
+                          if (prev.some(a => a.id === result.user.uid)) {
+                            toast.error(isRTL ? "هذا الحساب مرتبط مسبقاً!" : "This account is already linked!");
+                            return prev;
+                          }
+                          toast.success(isRTL ? "تم ربط حساب Firebase بنجاح!" : "Firebase account linked successfully!");
+                          return [...prev, {
+                            id: result.user.uid || Math.random().toString(36).substring(7),
+                            email: result.user.email || "new_facility@salamat.com",
+                            name: result.user.displayName || `Secondary DB Node ${prev.length + 1}`,
+                            isConnected: true,
+                            isSyncing: true,
+                            lastSync: new Date().toISOString()
+                          }];
+                        });
+                      }
+                    } catch (err: any) {
+                      if (err.code !== 'auth/popup-closed-by-user' && !err.message?.includes('popup-closed-by-user')) {
+                        toast.error(isRTL ? "فشل ربط الحساب" : "Failed to link account");
+                      }
                     }
-                  } catch (err: any) {
-                    if (err.code !== 'auth/popup-closed-by-user' && !err.message?.includes('popup-closed-by-user')) {
-                      toast.error(isRTL ? "فشل ربط الحساب" : "Failed to link account");
-                    }
-                  }
-                }}
-                className="bg-blue-50 text-blue-600 hover:bg-blue-100 px-4 py-2 flex items-center gap-2 rounded-xl text-xs font-bold transition-all cursor-pointer border border-blue-100"
-              >
-                <Plus size={14} />
-                {isRTL ? "ربط حساب عبر قوقل" : "Link via Google"}
-              </button>
+                  }}
+                  className="bg-blue-50 text-blue-600 hover:bg-blue-100 px-4 py-2 flex items-center gap-2 rounded-xl text-xs font-bold transition-all cursor-pointer border border-blue-100"
+                >
+                  <Plus size={14} />
+                  {isRTL ? "ربط حساب عبر قوقل" : "Link via Google"}
+                </button>
+              </div>
             </div>
 
             {linkedFirebaseAccounts.length === 0 ? (
@@ -13935,7 +14025,7 @@ function App() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {linkedFirebaseAccounts.map((account, index) => (
-                  <div key={account.id} className="border border-gray-100 shadow-sm rounded-2xl p-4 flex flex-col gap-3 relative overflow-hidden group hover:border-blue-200 transition-all">
+                  <div key={`${account.id}-${index}`} className="border border-gray-100 shadow-sm rounded-2xl p-4 flex flex-col gap-3 relative overflow-hidden group hover:border-blue-200 transition-all">
                     <div className="absolute top-0 right-0 w-2 h-full bg-blue-500"></div>
                     <div className="flex justify-between items-start">
                       <div className="flex items-center gap-3">
@@ -13964,7 +14054,9 @@ function App() {
                       <div className="flex gap-2">
                         <button 
                           onClick={() => {
-                            if (account.email) {
+                            if (account.type === 'remix' && account.dbId) {
+                               triggerGlobalRestore("dbBackup", account.dbId);
+                            } else if (account.email) {
                               const safeEmail = account.email.replace(/[^a-zA-Z0-9_@.\-]/g, '');
                               triggerGlobalRestore(`users/${safeEmail}/dbBackup`);
                             }

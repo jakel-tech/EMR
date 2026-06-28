@@ -20,7 +20,18 @@ import {
   serverTimestamp 
 } from 'firebase/firestore';
 import { toast } from 'sonner';
-import firebaseConfig from '../../firebase-applet-config.json';
+import firebaseConfigDoc from '../../firebase-applet-config.json';
+
+// Support Vercel/env-based configuration with fallback to the local json file
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || firebaseConfigDoc.apiKey,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfigDoc.authDomain,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseConfigDoc.projectId,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfigDoc.storageBucket,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfigDoc.messagingSenderId,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || firebaseConfigDoc.appId,
+  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || (firebaseConfigDoc as any).firestoreDatabaseId || "ai-studio-9830d766-abc0-407c-8f6e-71c5da588f72"
+};
 
 // Initialize Firebase App
 const app = initializeApp(firebaseConfig);
@@ -133,10 +144,8 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     sessionStorage.setItem('gdrive_access_token', cachedAccessToken);
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
-    console.error('Firebase Auth sign-in failed:', error);
-    if (error.code === 'auth/popup-closed-by-user' || error.message.includes('popup-closed-by-user')) {
-      toast.error('The login popup was closed. If it is being blocked, please click the "Open App" button to use this app in a New Tab!', { duration: 6000 });
-    } else {
+    console.warn('Firebase Auth sign-in failed/cancelled:', error.message);
+    if (error.code !== 'auth/popup-closed-by-user' && !error.message.includes('popup-closed-by-user')) {
       toast.error(`Authentication Failed: ${error.message}`);
     }
     throw error;
@@ -156,10 +165,8 @@ export const googleSignInForAuth = async () => {
     const idToken = await result.user.getIdToken();
     return { user: result.user, idToken };
   } catch (error: any) {
-    console.error('Firebase Auth sign-in failed:', error);
-    if (error.code === 'auth/popup-closed-by-user' || error.message.includes('popup-closed-by-user')) {
-      toast.error('The login popup was closed. If it is being blocked, please click the "Open App" button to use this app in a New Tab! (الرجاء فتح التطبيق في نافذة جديدة إذا تم حظر النافذة المنبثقة)', { duration: 6000 });
-    } else {
+    console.warn('Firebase Auth sign-in failed/cancelled:', error.message);
+    if (error.code !== 'auth/popup-closed-by-user' && !error.message.includes('popup-closed-by-user')) {
       toast.error(`Authentication Failed (فشل تسجيل الدخول): ${error.message}`);
     }
     throw error;

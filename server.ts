@@ -311,14 +311,43 @@ const getEmailLayout = (content: string, logoUrl: string) => `
 `;
 
 let firebaseConfigObj: any = null;
-const firebaseConfigPath = path.join(
-  process.cwd(),
-  "firebase-applet-config.json",
-);
-let firestoreDb: any = null;
-if (fs.existsSync(firebaseConfigPath)) {
+
+// Support loading Firebase config from environment variables for Vercel/Cloud Run
+if (process.env.FIREBASE_CONFIG) {
   try {
-    firebaseConfigObj = JSON.parse(fs.readFileSync(firebaseConfigPath, "utf8"));
+    firebaseConfigObj = JSON.parse(process.env.FIREBASE_CONFIG);
+  } catch (err) {
+    console.error("Failed to parse FIREBASE_CONFIG env variable:", err);
+  }
+} else if (process.env.FIREBASE_PROJECT_ID) {
+  firebaseConfigObj = {
+    apiKey: process.env.FIREBASE_API_KEY,
+    authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
+    appId: process.env.FIREBASE_APP_ID,
+    firestoreDatabaseId: process.env.FIREBASE_FIRESTORE_DATABASE_ID
+  };
+}
+
+if (!firebaseConfigObj) {
+  const firebaseConfigPath = path.join(
+    process.cwd(),
+    "firebase-applet-config.json",
+  );
+  if (fs.existsSync(firebaseConfigPath)) {
+    try {
+      firebaseConfigObj = JSON.parse(fs.readFileSync(firebaseConfigPath, "utf8"));
+    } catch (err) {
+      console.error("Failed to read firebase-applet-config.json file:", err);
+    }
+  }
+}
+
+let firestoreDb: any = null;
+if (firebaseConfigObj) {
+  try {
     const firebaseApp = initializeApp(firebaseConfigObj);
     const databaseId =
       firebaseConfigObj.firestoreDatabaseId ||
@@ -335,6 +364,27 @@ if (fs.existsSync(firebaseConfigPath)) {
 }
 
 let fullLinkedAccounts: any[] = [];
+let globalLinkedAccounts: string[] = [];
+
+const remixDbCache: { [id: string]: any } = {};
+
+function getRemixDb(dbId: string) {
+  if (remixDbCache[dbId]) return remixDbCache[dbId];
+  if (!firebaseConfigObj) return null;
+  try {
+    const appName = `remix_${dbId.replace(/[^a-zA-Z0-9]/g, '')}`;
+    const newApp = initializeApp(firebaseConfigObj, appName);
+    const db = initializeFirestore(newApp, {
+      experimentalForceLongPolling: true,
+      useFetchStreams: false,
+    } as any, dbId);
+    remixDbCache[dbId] = db;
+    return db;
+  } catch(e) {
+    console.error("Failed to init remix db", dbId, e);
+    return null;
+  }
+}
 
 async function loadLinkedAccounts() {
   if (firestoreDb) {
@@ -348,8 +398,12 @@ async function loadLinkedAccounts() {
           console.log(`Loaded ${globalLinkedAccounts.length} linked accounts from Firestore`);
         }
       }
-    } catch (e) {
-      console.warn("Failed to load linked accounts from Firestore", e);
+    } catch (e: any) {
+      if (e?.code === 'permission-denied') {
+        // Expected if unauthenticated or rules block it
+      } else {
+        console.warn("Failed to load linked accounts from Firestore", e);
+      }
     }
   }
 }
@@ -357,11 +411,15 @@ async function loadLinkedAccounts() {
 let isRestoringDb = false;
 let lastLocalTimestamp = 0;
 
-async function downloadDbFromFirestore(sourcePath: string = "dbBackup") {
-  if (!firestoreDb) return false;
+async function downloadDbFromFirestore(sourcePath: string = "dbBackup", targetDbId?: string) {
+  let dbToUse = firestoreDb;
+  if (targetDbId) {
+    dbToUse = getRemixDb(targetDbId);
+  }
+  if (!dbToUse) return false;
   try {
-    console.log(`Checking Firebase for Global Sync DB at ${sourcePath}...`);
-    const c0 = await getDoc(doc(firestoreDb, sourcePath, "chunk_0"));
+    console.log(`Checking Firebase for Global Sync DB at ${sourcePath} (dbId: ${targetDbId || 'default'})...`);
+    const c0 = await getDoc(doc(dbToUse, sourcePath, "chunk_0"));
     if (c0.exists()) {
       const { timestamp, data: firstChunk, totalChunks, compressed } = c0.data();
       lastLocalTimestamp = timestamp;
@@ -369,7 +427,7 @@ async function downloadDbFromFirestore(sourcePath: string = "dbBackup") {
       const isCompressed = compressed === true;
       
       for (let i = 1; i < totalChunks; i++) {
-        const c = await getDoc(doc(firestoreDb, sourcePath, `chunk_${i}`));
+        const c = await getDoc(doc(dbToUse, sourcePath, `chunk_${i}`));
         if (c.exists()) {
           base64 += c.data().data;
         } else {
@@ -402,7 +460,6 @@ async function downloadDbFromFirestore(sourcePath: string = "dbBackup") {
 }
 
 let syncTimeout: NodeJS.Timeout | null = null;
-let globalLinkedAccounts: string[] = [];
 
 async function uploadDbToFirestore() {
   if (!firestoreDb || isRestoringDb) return;
@@ -461,16 +518,47 @@ async function uploadDbToFirestore() {
       await writeChunks("dbBackup");
 
       // Write to all linked accounts for redundancy
-      for (const email of globalLinkedAccounts) {
-        if (!email) continue;
-        const safeEmail = email.replace(/[^a-zA-Z0-9_@.\-]/g, '');
-        await writeChunks(`users/${safeEmail}/dbBackup`).catch(err => {
-          console.warn(`Failed to sync SQLite to linked account ${safeEmail}`, err);
-        });
+      for (const account of fullLinkedAccounts) {
+        if (!account) continue;
+        
+        // Handle Remix Database Sync
+        if (account.type === 'remix' && account.dbId) {
+           const rDb = getRemixDb(account.dbId);
+           if (rDb) {
+             const writeChunksToDb = async (basePath: string) => {
+               for (let i = 1; i < chunks; i++) {
+                 await setDoc(doc(rDb, basePath, `chunk_${i}`), {
+                   data: base64.substring(i * chunkSize, (i + 1) * chunkSize),
+                   totalChunks: chunks,
+                   timestamp,
+                   compressed: true,
+                 });
+               }
+               if (chunks > 0) {
+                 await setDoc(doc(rDb, basePath, "chunk_0"), {
+                   data: base64.substring(0, chunkSize),
+                   totalChunks: chunks,
+                   timestamp,
+                   compressed: true,
+                 });
+               }
+             };
+             await writeChunksToDb("dbBackup").catch(err => {
+               console.warn(`Failed to sync SQLite to Remix DB ${account.dbId}`, err);
+             });
+           }
+        } else {
+           const email = account.email || account;
+           if (!email || typeof email !== 'string') continue;
+           const safeEmail = email.replace(/[^a-zA-Z0-9_@.\-]/g, '');
+           await writeChunks(`users/${safeEmail}/dbBackup`).catch(err => {
+             console.warn(`Failed to sync SQLite to linked account ${safeEmail}`, err);
+           });
+        }
       }
 
       console.log(
-        `Synced DB to Firebase (${chunks} chunks, compressed from ${sizeInMB.toFixed(2)} MB) + ${globalLinkedAccounts.length} linked accounts`,
+        `Synced DB to Firebase (${chunks} chunks, compressed from ${sizeInMB.toFixed(2)} MB) + ${fullLinkedAccounts.length} linked accounts`,
       );
     } catch (e) {
       console.error("Upload DB Error:", e);
@@ -4876,9 +4964,9 @@ async function startServer() {
   app.post("/api/system/trigger-restore", authenticateToken, async (req: any, res) => {
     try {
       if (req.user.role !== "Super Admin") return res.status(403).json({ error: "Forbidden" });
-      const { sourcePath = "dbBackup" } = req.body;
+      const { sourcePath = "dbBackup", targetDbId } = req.body;
       isRestoringDb = true;
-      const success = await downloadDbFromFirestore(sourcePath);
+      const success = await downloadDbFromFirestore(sourcePath, targetDbId);
       isRestoringDb = false;
       if (success) {
         res.json({ success: true, message: "Restore successful. Restarting server might be needed for some state." });
