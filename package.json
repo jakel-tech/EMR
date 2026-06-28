@@ -14,7 +14,7 @@
     "build:exe": "npx pkg dist/server.js --targets node18-linux-x64,node18-win-x64 --out-path executables"
   },
   "engines": {
-    "node": "20.x"
+    "node": "22.x"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
