@@ -73,14 +73,25 @@ initTransporter();
 // Telegram Bot setup
 let telegramBot: TelegramBot | null = null;
 let telegramBotUsername = "";
+let telegramErrorCount = 0;
 
-if (process.env.TELEGRAM_BOT_TOKEN) {
+const botToken = process.env.TELEGRAM_BOT_TOKEN ? process.env.TELEGRAM_BOT_TOKEN.trim() : "";
+const isPlaceholderToken = botToken === "8801203178:AAHeJ1lmT4qVeQGhKLFZjC4RRBAfn_dRTFk" || 
+                           botToken === "ENTER_TELEGRAM_BOT_TOKEN" || 
+                           !botToken;
+
+if (isPlaceholderToken) {
+  console.log("Using placeholder/empty Telegram Bot Token. Polling is disabled.");
+} else {
   try {
-    telegramBot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
+    telegramBot = new TelegramBot(botToken, { polling: true });
     console.log("Telegram Bot initialized successfully.");
     
     telegramBot.getMe().then(me => {
       telegramBotUsername = me.username || "";
+      telegramErrorCount = 0; // Reset count on success
+    }).catch(err => {
+      console.warn("Failed to get Telegram Bot username. Token may be invalid.", err.message);
     });
     
     telegramBot.on('message', async (msg) => {
@@ -140,6 +151,15 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
     });
     
     telegramBot.on('polling_error', (error: any) => {
+      telegramErrorCount++;
+      if (telegramErrorCount >= 5) {
+        console.warn("Telegram bot has failed continuously 5 times. Disabling polling to prevent resource drain.");
+        try {
+          telegramBot?.stopPolling();
+        } catch (stopErr) {
+          console.error("Error stopping Telegram polling:", stopErr);
+        }
+      }
       if (error.code === 'ETELEGRAM' && error.message.includes('409 Conflict')) {
         console.warn("Telegram polling conflict: Another instance is running. Polling will retry.");
       } else if (error.code === 'EFATAL') {
@@ -9332,9 +9352,15 @@ async function startServer() {
     });
   }
 
-  server.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  if (process.env.VERCEL !== "1") {
+    server.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }
+  return app;
 }
 
-startServer().catch(console.error);
+export const appPromise = startServer().catch((err) => {
+  console.error("Failed to start server:", err);
+  throw err;
+});
