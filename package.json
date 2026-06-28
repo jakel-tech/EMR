@@ -14,7 +14,7 @@
     "build:exe": "npx pkg dist/server.js --targets node18-linux-x64,node18-win-x64 --out-path executables"
   },
   "engines": {
-    "node": "22.x"
+    "node": "24.x"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
@@ -56,7 +56,10 @@
     "twilio": "^6.0.0",
     "uuid": "^14.0.0",
     "vite": "^6.2.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "esbuild": "^0.28.0",
+    "tailwindcss": "^4.1.14",
+    "typescript": "~5.8.2"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -69,10 +72,6 @@
     "@types/sqlite3": "^3.1.11",
     "@types/uuid": "^10.0.0",
     "autoprefixer": "^10.4.21",
-    "esbuild": "^0.28.0",
-    "pkg": "^5.8.1",
-    "tailwindcss": "^4.1.14",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "pkg": "^5.8.1"
   }
 }
