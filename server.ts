@@ -73,25 +73,14 @@ initTransporter();
 // Telegram Bot setup
 let telegramBot: TelegramBot | null = null;
 let telegramBotUsername = "";
-let telegramErrorCount = 0;
 
-const botToken = process.env.TELEGRAM_BOT_TOKEN ? process.env.TELEGRAM_BOT_TOKEN.trim() : "";
-const isPlaceholderToken = botToken === "8801203178:AAHeJ1lmT4qVeQGhKLFZjC4RRBAfn_dRTFk" || 
-                           botToken === "ENTER_TELEGRAM_BOT_TOKEN" || 
-                           !botToken;
-
-if (isPlaceholderToken) {
-  console.log("Using placeholder/empty Telegram Bot Token. Polling is disabled.");
-} else {
+if (process.env.TELEGRAM_BOT_TOKEN) {
   try {
-    telegramBot = new TelegramBot(botToken, { polling: true });
+    telegramBot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
     console.log("Telegram Bot initialized successfully.");
     
     telegramBot.getMe().then(me => {
       telegramBotUsername = me.username || "";
-      telegramErrorCount = 0; // Reset count on success
-    }).catch(err => {
-      console.warn("Failed to get Telegram Bot username. Token may be invalid.", err.message);
     });
     
     telegramBot.on('message', async (msg) => {
@@ -151,15 +140,6 @@ if (isPlaceholderToken) {
     });
     
     telegramBot.on('polling_error', (error: any) => {
-      telegramErrorCount++;
-      if (telegramErrorCount >= 5) {
-        console.warn("Telegram bot has failed continuously 5 times. Disabling polling to prevent resource drain.");
-        try {
-          telegramBot?.stopPolling();
-        } catch (stopErr) {
-          console.error("Error stopping Telegram polling:", stopErr);
-        }
-      }
       if (error.code === 'ETELEGRAM' && error.message.includes('409 Conflict')) {
         console.warn("Telegram polling conflict: Another instance is running. Polling will retry.");
       } else if (error.code === 'EFATAL') {
@@ -929,7 +909,8 @@ async function runMigrationsAndSeed(targetDb: Database) {
       license_code TEXT,
       address TEXT,
       director_name TEXT,
-      logo_url TEXT
+      logo_url TEXT,
+      type TEXT DEFAULT 'hospital'
     );
     CREATE TABLE IF NOT EXISTS assets (
       id TEXT PRIMARY KEY,
@@ -1795,6 +1776,11 @@ async function runMigrationsAndSeed(targetDb: Database) {
     await db.exec(`ALTER TABLE hospitals ADD COLUMN location TEXT`);
     await db.exec(`ALTER TABLE hospitals ADD COLUMN contact_email TEXT`);
     await db.exec(`ALTER TABLE hospitals ADD COLUMN contact_phone TEXT`);
+  } catch (e) {}
+
+  try {
+    await db.exec(`ALTER TABLE hospitals ADD COLUMN type TEXT`);
+    await db.exec(`UPDATE hospitals SET type = 'hospital' WHERE type IS NULL`);
   } catch (e) {}
 
   try {
@@ -2696,28 +2682,7 @@ async function startServer() {
     next();
   });
   app.use(express.json({ limit: "10mb" }));
-  app.use(
-    cors({
-      origin: (origin, callback) => {
-        if (!origin) {
-          callback(null, true);
-          return;
-        }
-        try {
-          const parsedUrl = new URL(origin);
-          const hostname = parsedUrl.hostname;
-          if (hostname === "jakel.biz" || hostname.endsWith(".jakel.biz")) {
-            callback(null, origin);
-            return;
-          }
-        } catch (e) {
-          // Ignore URL parsing error
-        }
-        callback(null, origin);
-      },
-      credentials: true,
-    })
-  );
+  app.use(cors());
   app.use(
     helmet({
       contentSecurityPolicy: false,
@@ -2752,7 +2717,7 @@ async function startServer() {
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
     res.setHeader(
       "Content-Security-Policy",
-      "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https: wss:; object-src 'none'; frame-ancestors 'self' https://ai.studio https://*.google.com https://*.run.app https://*.gitpod.io http://localhost:* https://jakel.biz https://*.jakel.biz http://jakel.biz http://*.jakel.biz",
+      "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https: wss:; object-src 'none'; frame-ancestors 'self' https://ai.studio https://*.google.com https://*.run.app https://*.gitpod.io http://localhost:*",
     );
     res.setHeader("Referrer-Policy", "no-referrer-when-downgrade");
     next();
@@ -4583,9 +4548,10 @@ async function startServer() {
         license_code,
         address,
         director_name,
+        type,
       } = req.body;
       await db.run(
-        "INSERT INTO hospitals (id, name, subscription_plan, subscription_status, location, contact_email, contact_phone, password, logo_url, slogan, license_code, address, director_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO hospitals (id, name, subscription_plan, subscription_status, location, contact_email, contact_phone, password, logo_url, slogan, license_code, address, director_name, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
           id,
           name,
@@ -4600,6 +4566,7 @@ async function startServer() {
           license_code || null,
           address || null,
           director_name || null,
+          type || "hospital",
         ],
       );
 
@@ -4634,6 +4601,7 @@ async function startServer() {
         license_code,
         address,
         director_name,
+        type,
       } = req.body;
 
       const existing = await db.get(
@@ -4649,7 +4617,7 @@ async function startServer() {
       }
 
       await db.run(
-        "UPDATE hospitals SET name=?, subscription_plan=?, subscription_status=?, location=?, contact_email=?, contact_phone=?, password=?, logo_url=?, slogan=?, license_code=?, address=?, director_name=? WHERE id=?",
+        "UPDATE hospitals SET name=?, subscription_plan=?, subscription_status=?, location=?, contact_email=?, contact_phone=?, password=?, logo_url=?, slogan=?, license_code=?, address=?, director_name=?, type=? WHERE id=?",
         [
           name,
           subscription_plan,
@@ -4663,6 +4631,7 @@ async function startServer() {
           license_code || null,
           address || null,
           director_name || null,
+          type || "hospital",
           req.params.id,
         ],
       );
@@ -9373,15 +9342,9 @@ async function startServer() {
     });
   }
 
-  if (process.env.VERCEL !== "1") {
-    server.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running on http://localhost:${PORT}`);
-    });
-  }
-  return app;
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
 }
 
-export const appPromise = startServer().catch((err) => {
-  console.error("Failed to start server:", err);
-  throw err;
-});
+startServer().catch(console.error);

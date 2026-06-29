@@ -226,11 +226,15 @@ const ExternalWorkshops: React.FC<ExternalWorkshopsProps> = ({
     setIsWsModalOpen(true);
   };
 
-  const totalRepairSpend = externalRepairTickets.reduce((sum, tk) => sum + (tk.cost || 0), 0);
-  const activeOutCount = externalRepairTickets.filter((tk) => tk.status !== "Returned & Verified").length;
-  const completedCount = externalRepairTickets.filter((tk) => tk.status === "Returned & Verified").length;
-  const avgWarranty = externalRepairTickets.length > 0 
-    ? (externalRepairTickets.reduce((sum, tk) => sum + (tk.warranty_period_months || 0), 0) / externalRepairTickets.length).toFixed(1)
+  const safeTickets = externalRepairTickets || [];
+  const safeWorkshops = externalWorkshops || [];
+  const safeAssets = assets || [];
+
+  const totalRepairSpend = safeTickets.reduce((sum, tk) => sum + (tk.cost || 0), 0);
+  const activeOutCount = safeTickets.filter((tk) => tk.status !== "Returned & Verified").length;
+  const completedCount = safeTickets.filter((tk) => tk.status === "Returned & Verified").length;
+  const avgWarranty = safeTickets.length > 0 
+    ? (safeTickets.reduce((sum, tk) => sum + (tk.warranty_period_months || 0), 0) / safeTickets.length).toFixed(1)
     : "0";
 
   return (
@@ -291,7 +295,7 @@ const ExternalWorkshops: React.FC<ExternalWorkshopsProps> = ({
 
       {extWsSubTab === "directory" && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {externalWorkshops.length === 0 ? (
+          {safeWorkshops.length === 0 ? (
             <div className="col-span-full bg-white dark:bg-slate-900/40 border border-dashed border-slate-300 dark:border-slate-700 p-12 rounded-[2rem] text-center space-y-4">
               <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-2xl flex items-center justify-center mx-auto text-slate-400">
                 <ExternalLink size={28} />
@@ -310,7 +314,7 @@ const ExternalWorkshops: React.FC<ExternalWorkshopsProps> = ({
               </button>
             </div>
           ) : (
-            externalWorkshops.map((ws) => (
+            safeWorkshops.map((ws) => (
               <div
                 key={ws.id}
                 className="bg-white dark:bg-slate-900/40 border border-slate-200/50 dark:border-slate-800 p-6 rounded-[2rem] hover:shadow-lg transition-all flex flex-col justify-between group"
@@ -386,7 +390,7 @@ const ExternalWorkshops: React.FC<ExternalWorkshopsProps> = ({
 
       {extWsSubTab === "tickets" && (
         <div className="space-y-6">
-          {externalRepairTickets.length === 0 ? (
+          {safeTickets.length === 0 ? (
             <div className="bg-white dark:bg-slate-900/40 border border-dashed border-slate-300 dark:border-slate-700 p-12 rounded-[2rem] text-center space-y-4">
               <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-2xl flex items-center justify-center mx-auto text-slate-400">
                 <ClipboardList size={28} />
@@ -421,7 +425,7 @@ const ExternalWorkshops: React.FC<ExternalWorkshopsProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    {externalRepairTickets.map((tk) => {
+                    {safeTickets.map((tk) => {
                       const statusColors: Record<string, string> = {
                         "Sent": "bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400",
                         "Under Inspection": "bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400",
@@ -510,12 +514,12 @@ const ExternalWorkshops: React.FC<ExternalWorkshopsProps> = ({
                 {isRTL ? "الإنفاق حسب ورش الصيانة" : "Outsource Spending By Workshop"}
               </h4>
               <div className="h-64 flex items-center justify-center">
-                {externalRepairTickets.length === 0 ? (
+                {safeTickets.length === 0 ? (
                   <span className="text-xs text-slate-400">{isRTL ? "لا توجد بيانات حالياً" : "No spending data logged"}</span>
                 ) : (
                   <div className="w-full h-full flex flex-col justify-center space-y-4">
-                    {externalWorkshops.map((ws) => {
-                      const wsSpend = externalRepairTickets
+                    {safeWorkshops.map((ws) => {
+                      const wsSpend = safeTickets
                         .filter((tk) => tk.workshop_id === ws.id)
                         .reduce((sum, tk) => sum + (tk.cost || 0), 0);
                       const pct = totalRepairSpend > 0 ? (wsSpend / totalRepairSpend) * 100 : 0;
@@ -541,12 +545,12 @@ const ExternalWorkshops: React.FC<ExternalWorkshopsProps> = ({
                 {isRTL ? "معدل الحالات لطلبات الإصلاح" : "Repair Ticket State Ratios"}
               </h4>
               <div className="h-64 flex flex-col justify-center space-y-4">
-                {externalRepairTickets.length === 0 ? (
+                {safeTickets.length === 0 ? (
                   <span className="text-xs text-slate-400">{isRTL ? "لا توجد أجهزة مسجلة" : "No ticket status data"}</span>
                 ) : (
                   ["Sent", "Under Inspection", "Repaired", "Returned & Verified"].map((st) => {
-                    const count = externalRepairTickets.filter((tk) => tk.status === st).length;
-                    const pct = (count / externalRepairTickets.length) * 100;
+                    const count = safeTickets.filter((tk) => tk.status === st).length;
+                    const pct = (count / safeTickets.length) * 100;
                     const labelAr: Record<string, string> = {
                       "Sent": "تم الإرسال والترحيل",
                       "Under Inspection": "تحت التشخيص الفني",
@@ -697,7 +701,7 @@ const ExternalWorkshops: React.FC<ExternalWorkshopsProps> = ({
                     onChange={(e) => setTkFormAssetId(e.target.value)}
                   >
                     <option value="">{isRTL ? "اختر الجهاز..." : "Choose asset..."}</option>
-                    {assets.map((a) => (
+                    {safeAssets.map((a) => (
                       <option key={a.id} value={a.id}>{a.name} ({a.status})</option>
                     ))}
                   </select>
@@ -711,7 +715,7 @@ const ExternalWorkshops: React.FC<ExternalWorkshopsProps> = ({
                     onChange={(e) => setTkFormWorkshopId(e.target.value)}
                   >
                     <option value="">{isRTL ? "اختر الورشة المتخصصة..." : "Choose workshop..."}</option>
-                    {externalWorkshops.map((w) => (
+                    {safeWorkshops.map((w) => (
                       <option key={w.id} value={w.id}>{w.name} ({w.specialty})</option>
                     ))}
                   </select>

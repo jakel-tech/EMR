@@ -302,6 +302,7 @@ export type Hospital = {
   license_code?: string;
   address?: string;
   director_name?: string;
+  type?: 'hospital' | 'laboratory' | 'pharmacy' | 'workshop' | string;
 };
 
 export type HospitalVisit = {

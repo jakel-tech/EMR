@@ -114,6 +114,8 @@ import {
   CloudOff,
   LogOut,
   Trash,
+  CheckCheck,
+  Paperclip,
 } from "lucide-react";
 import {
   Asset,
@@ -1651,6 +1653,13 @@ function App() {
   const userDropdownRef = useRef<HTMLDivElement>(null);
   const headerUserDropdownRef = useRef<HTMLDivElement>(null);
   const headerNotificationsRef = useRef<HTMLDivElement>(null);
+  const chatMessagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (activeTab === "telehealth" && chatMessagesEndRef.current) {
+      chatMessagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [telehealthMessages, activeChatPart, activeTab]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -1792,10 +1801,81 @@ function App() {
   const [reportType, setReportType] = useState("assets");
   const [reportStartDate, setReportStartDate] = useState("");
   const [reportEndDate, setReportEndDate] = useState("");
+
+
   const [reportSignerId, setReportSignerId] = useState("");
   const [reportSignerTitle, setReportSignerTitle] = useState("");
   const [reportSignatureImg, setReportSignatureImg] = useState("");
   const reportSigCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Missing Administrative Sections State Vectors (Durable Local Storage Persistence)
+  const [roomBookings, setRoomBookings] = useState<{ room: string; bed: string; patient: string; status: string; date: string }[]>(() => {
+    const saved = localStorage.getItem("hosp_room_bookings");
+    return saved ? JSON.parse(saved) : [
+      { room: "ICU-102", bed: "Bed-A", patient: "Ali Hassan", status: "Occupied", date: "2026-06-25" },
+      { room: "Ward-B3", bed: "Bed-04", patient: "Fatima Al-Harbi", status: "Occupied", date: "2026-06-27" },
+      { room: "Pediatric-08", bed: "Bed-01", patient: "Youssef Ahmed", status: "Occupied", date: "2026-06-28" }
+    ];
+  });
+
+  const [labCatalogs, setLabCatalogs] = useState<{ code: string; name: string; sample: string; normalRange: string; price: number }[]>(() => {
+    const saved = localStorage.getItem("lab_test_catalog");
+    return saved ? JSON.parse(saved) : [
+      { code: "CBC", name: "Complete Blood Count", sample: "Whole Blood", normalRange: "4.5 - 11.0 K/uL", price: 120 },
+      { code: "TSH", name: "Thyroid Stimulating Hormone", sample: "Serum", normalRange: "0.4 - 4.0 mIU/L", price: 180 },
+      { code: "LFT", name: "Liver Function Test", sample: "Plasma", normalRange: "ALT: 7-56, AST: 10-40 U/L", price: 250 }
+    ];
+  });
+
+  const [pharmacySuppliers, setPharmacySuppliers] = useState<{ id: string; name: string; license: string; contact: string; category: string }[]>(() => {
+    const saved = localStorage.getItem("pharmacy_suppliers");
+    return saved ? JSON.parse(saved) : [
+      { id: "SUP-01", name: "National Pharmaceutical Dist.", license: "MOH-8827", contact: "sales@national-pharma.com", category: "Antibiotics & Generics" },
+      { id: "SUP-02", name: "Al-Razi Drug Imports LLC", license: "MOH-4921", contact: "support@alrazi-pharma.com", category: "Vitamins & Chronic Illness" },
+      { id: "SUP-03", name: "Global Med-Tech Supplies", license: "MOH-3019", contact: "procure@global-medtech.com", category: "Vaccines & Critical Sera" }
+    ];
+  });
+
+  const [deviceCalibrations, setDeviceCalibrations] = useState<{ id: string; assetName: string; date: string; status: string; engineer: string }[]>(() => {
+    const saved = localStorage.getItem("device_calibrations");
+    return saved ? JSON.parse(saved) : [
+      { id: "CAL-892", assetName: "Mindray SV300 Ventilator", date: "2026-05-12", status: "Certified / Safe", engineer: "Eng. Tariq Al-Otaibi" },
+      { id: "CAL-301", assetName: "GE Healthcare MAC 2000 ECG", date: "2026-06-19", status: "Certified / Safe", engineer: "Eng. Laila Majdi" },
+      { id: "CAL-442", assetName: "Philips Affiniti 50 Ultrasound", date: "2026-06-22", status: "Calibration Required", engineer: "Eng. Tariq Al-Otaibi" }
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem("hosp_room_bookings", JSON.stringify(roomBookings));
+  }, [roomBookings]);
+
+  useEffect(() => {
+    localStorage.setItem("lab_test_catalog", JSON.stringify(labCatalogs));
+  }, [labCatalogs]);
+
+  useEffect(() => {
+    localStorage.setItem("pharmacy_suppliers", JSON.stringify(pharmacySuppliers));
+  }, [pharmacySuppliers]);
+
+  useEffect(() => {
+    localStorage.setItem("device_calibrations", JSON.stringify(deviceCalibrations));
+  }, [deviceCalibrations]);
+
+  // Form input states for the custom administrative modules
+  const [newRoomNo, setNewRoomNo] = useState("");
+  const [newBedNo, setNewBedNo] = useState("");
+  const [newRoomPatient, setNewRoomPatient] = useState("");
+  const [newLabCode, setNewLabCode] = useState("");
+  const [newLabName, setNewLabName] = useState("");
+  const [newLabRange, setNewLabRange] = useState("");
+  const [newLabPrice, setNewLabPrice] = useState(100);
+  const [newSupplierName, setNewSupplierName] = useState("");
+  const [newSupplierLicense, setNewSupplierLicense] = useState("");
+  const [newSupplierContact, setNewSupplierContact] = useState("");
+  const [newSupplierCategory, setNewSupplierCategory] = useState("");
+  const [newCalibAsset, setNewCalibAsset] = useState("");
+  const [newCalibStatus, setNewCalibStatus] = useState("Certified / Safe");
+  const [newCalibEngineer, setNewCalibEngineer] = useState("");
   const [currentUser, setCurrentUser] = useState<AppUser>(() => {
     const saved = localStorage.getItem("currentUser");
     if (saved) {
@@ -3112,6 +3192,20 @@ function App() {
   }, [hospitals, activeHospitalId]);
 
   useEffect(() => {
+    if (!activeHospital) return;
+    const type = activeHospital.type || "hospital";
+    if (type === "hospital") {
+      setReportType("patients");
+    } else if (type === "laboratory") {
+      setReportType("examinations");
+    } else if (type === "pharmacy") {
+      setReportType("inventory");
+    } else if (type === "workshop") {
+      setReportType("workOrders");
+    }
+  }, [activeHospital]);
+
+  useEffect(() => {
     // Determine the web app's current brand/logo source
     const logoSource = systemLogo || activeHospital?.logo_url || "/icon.png";
 
@@ -3159,16 +3253,16 @@ function App() {
       if (cached) {
         try {
           const data = JSON.parse(cached);
-          setAssets(data.assetsData);
-          setWorkOrders(data.woData);
-          setSchedules(data.maintData);
-          setInventory(data.invData);
-          setHospitals(data.hospitalsData);
-          setUsers(data.usersData);
-          setPatients(data.patientsData);
-          setMedicalRecords(data.medRecordsData);
-          setMedications(data.medicationsData);
-          setExaminations(data.examinationsData);
+          setAssets(data.assetsData || []);
+          setWorkOrders(data.woData || []);
+          setSchedules(data.maintData || []);
+          setInventory(data.invData || []);
+          setHospitals(data.hospitalsData || []);
+          setUsers(data.usersData || []);
+          setPatients(data.patientsData || []);
+          setMedicalRecords(data.medRecordsData || []);
+          setMedications(data.medicationsData || []);
+          setExaminations(data.examinationsData || []);
           setAppointments(data.appointmentsData || []);
           setBilling(data.billingData || []);
           setDepartments(data.departmentsData || []);
@@ -3283,24 +3377,24 @@ function App() {
       };
       localStorage.setItem("offline_cache_data", JSON.stringify(cache));
 
-      setAssets(assets);
+      setAssets(assets || []);
       setManufacturers(manufacturers || []);
-      setWorkOrders(woData);
-      setSchedules(maintData);
-      setInventory(invData);
-      setHospitals(hospitalsData);
-      setUsers(usersData);
-      setPatients(patientsData);
-      setMedicalRecords(medRecordsData);
-      setMedications(medicationsData);
-      setExaminations(examinationsData);
-      setDepartments(departmentsData);
-      setAppointments(appointmentsData);
-      setBilling(billingData);
-      setFinanceTransactions(financeData);
-      setStaffShifts(shiftsData);
-      setStaffTasks(tasksData);
-      setScanLogs(scanLogsData);
+      setWorkOrders(woData || []);
+      setSchedules(maintData || []);
+      setInventory(invData || []);
+      setHospitals(hospitalsData || []);
+      setUsers(usersData || []);
+      setPatients(patientsData || []);
+      setMedicalRecords(medRecordsData || []);
+      setMedications(medicationsData || []);
+      setExaminations(examinationsData || []);
+      setDepartments(departmentsData || []);
+      setAppointments(appointmentsData || []);
+      setBilling(billingData || []);
+      setFinanceTransactions(financeData || []);
+      setStaffShifts(shiftsData || []);
+      setStaffTasks(tasksData || []);
+      setScanLogs(scanLogsData || []);
       setAnalytics(analyticsData);
       setSuppliers(suppliersData || []);
       setMedicationSchedules(medicationSchedulesData || []);
@@ -3361,16 +3455,16 @@ function App() {
       if (cached) {
         toast.info("Loaded data from offline cache");
         const data = JSON.parse(cached);
-        setAssets(data.assetsData);
-        setWorkOrders(data.woData);
-        setSchedules(data.maintData);
-        setInventory(data.invData);
-        setHospitals(data.hospitalsData);
-        setUsers(data.usersData);
-        setPatients(data.patientsData);
-        setMedicalRecords(data.medRecordsData);
-        setMedications(data.medicationsData);
-        setExaminations(data.examinationsData);
+        setAssets(data.assetsData || []);
+        setWorkOrders(data.woData || []);
+        setSchedules(data.maintData || []);
+        setInventory(data.invData || []);
+        setHospitals(data.hospitalsData || []);
+        setUsers(data.usersData || []);
+        setPatients(data.patientsData || []);
+        setMedicalRecords(data.medRecordsData || []);
+        setMedications(data.medicationsData || []);
+        setExaminations(data.examinationsData || []);
         setDepartments(data.departmentsData || []);
         setAppointments(data.appointmentsData || []);
         setBilling(data.billingData || []);
@@ -4204,6 +4298,16 @@ function App() {
     };
     const s = sectionMap[section] || section;
 
+    // Super Admin Bypass: Has full permissions and ignores institution boundaries
+    if (currentUser.role === "Super Admin") return true;
+
+    // Institution Boundary Check (prevent access to cross-domain modules)
+    if (activeHospital?.type) {
+      if (activeHospital.type === "laboratory" && ["appointments", "workOrders", "maintenance", "hr"].includes(s)) return false;
+      if (activeHospital.type === "pharmacy" && ["appointments", "workOrders", "maintenance", "examination", "pacs"].includes(s)) return false;
+      if (activeHospital.type === "workshop" && ["patient", "medicalRecord", "medication", "examination", "billing", "emr", "appointments"].includes(s)) return false;
+    }
+
     // Support custom JSON permissions (Manual per-user overrides)
     let customPerms: any = null;
     if (currentUser.permissions) {
@@ -4329,41 +4433,86 @@ function App() {
       const today = new Date().toISOString().split("T")[0];
 
       if (currentUser?.role !== "Patient") {
-        assets
-          .filter((a) => a.status === "Broken")
+        if (!activeHospital?.type || activeHospital?.type === "hospital" || activeHospital?.type === "workshop") {
+          assets
+            .filter((a) => a.status === "Broken")
+            .forEach((a) => {
+              newNotifications.push({
+                id: `asset-${a.id}`,
+                title: isRTL ? "عطل في المعدات" : "Critical Asset Failure",
+                message: isRTL ? `المعدة ${a.name} في ${a.location} متعطلة.` : `${a.name} in ${a.location} is marked as Broken.`,
+                read: prev.find((n) => n.id === `asset-${a.id}`)?.read || false,
+                type: "critical",
+                timestamp: "Just now",
+              });
+            });
+        }
+
+        if (!activeHospital?.type || activeHospital?.type === "pharmacy" || activeHospital?.type === "hospital") {
+          inventory
+            .filter((i) => i.currentQuantity <= i.minQuantity)
+            .forEach((i) => {
+              newNotifications.push({
+                id: `inv-${i.id}`,
+                title: isRTL ? "نقص في المخزون" : "Low Inventory Alert",
+                message: isRTL ? `المخزون ${i.name} (رقم: ${i.partNumber}) منخفض (${i.currentQuantity}/${i.minQuantity}).` : `${i.name} (Part: ${i.partNumber}) is running low (${i.currentQuantity}/${i.minQuantity}).`,
+                read: prev.find((n) => n.id === `inv-${i.id}`)?.read || false,
+                type: "warning",
+                timestamp: "Just now",
+              });
+            });
+        }
+
+        if (activeHospital?.type === "workshop") {
+          workOrders
+            .filter((w) => w.status !== "Completed" && w.dueDate < today)
+            .forEach((w) => {
+              newNotifications.push({
+                id: `wo-${w.id}`,
+                title: isRTL ? "أمر عمل متأخر" : "Overdue Work Order",
+                message: isRTL ? `أمر العمل ${w.description} متأخر.` : `Work order processing ${w.description} is overdue.`,
+                read: prev.find((n) => n.id === `wo-${w.id}`)?.read || false,
+                type: "warning",
+                timestamp: "Just now",
+              });
+            });
+        }
+      } else if (currentUser?.role === "Patient") {
+        appointments
+          .filter((a) => a.patientId === currentUser.id && a.date >= today && a.status === "Scheduled")
           .forEach((a) => {
             newNotifications.push({
-              id: `asset-${a.id}`,
-              title: "Critical Asset Failure",
-              message: `${a.name} in ${a.location} is marked as Broken.`,
-              read: prev.find((n) => n.id === `asset-${a.id}`)?.read || false,
-              type: "critical",
-              timestamp: "Just now",
+              id: `appt-${a.id}`,
+              title: isRTL ? "موعد قادم" : "Upcoming Appointment",
+              message: isRTL ? `لديك موعد قادم بتاريخ ${a.date} الساعة ${a.time}.` : `You have an upcoming appointment on ${a.date} at ${a.time}.`,
+              read: prev.find((n) => n.id === `appt-${a.id}`)?.read || false,
+              type: "info",
+              timestamp: a.date,
             });
           });
 
-        inventory
-          .filter((i) => i.currentQuantity <= i.minQuantity)
-          .forEach((i) => {
+        medicationSchedules
+          .filter((m) => m.patient_id === currentUser.id && m.status === "Scheduled")
+          .forEach((m) => {
             newNotifications.push({
-              id: `inv-${i.id}`,
-              title: "Low Inventory Alert",
-              message: `${i.name} (Part: ${i.partNumber}) is running low (${i.currentQuantity}/${i.minQuantity}).`,
-              read: prev.find((n) => n.id === `inv-${i.id}`)?.read || false,
-              type: "warning",
-              timestamp: "Just now",
+              id: `med-${m.id}`,
+              title: isRTL ? "تذكير بالدواء" : "Medication Reminder",
+              message: isRTL ? `تذكير بأخذ جرعة الدواء في الوقت: ${new Date(m.scheduled_time).toLocaleString()}.` : `Reminder to take medication dose at: ${new Date(m.scheduled_time).toLocaleString()}.`,
+              read: prev.find((n) => n.id === `med-${m.id}`)?.read || false,
+              type: "info",
+              timestamp: new Date(m.scheduled_time).toLocaleTimeString(),
             });
           });
-
-        workOrders
-          .filter((w) => w.status !== "Completed" && w.dueDate < today)
-          .forEach((w) => {
+          
+        telehealthMessages
+          .filter((msg) => msg.receiver_id === currentUser.id && !msg.read)
+          .forEach((msg) => {
             newNotifications.push({
-              id: `wo-${w.id}`,
-              title: "Overdue Work Order",
-              message: `Work order processing ${w.description} is overdue.`,
-              read: prev.find((n) => n.id === `wo-${w.id}`)?.read || false,
-              type: "warning",
+              id: `msg-${msg.id}`,
+              title: isRTL ? "رسالة جديدة من الطبيب" : "New Message from Doctor",
+              message: isRTL ? `لديك رسالة جديدة من ${msg.sender_name}. يرجى مراجعة صندوق الوارد.` : `You have a new message from ${msg.sender_name}. Please check your inbox.`,
+              read: prev.find((n) => n.id === `msg-${msg.id}`)?.read || false,
+              type: "info",
               timestamp: "Just now",
             });
           });
@@ -4374,14 +4523,17 @@ function App() {
         (n) =>
           !n.id.startsWith("asset-") &&
           !n.id.startsWith("inv-") &&
-          !n.id.startsWith("wo-"),
+          !n.id.startsWith("wo-") &&
+          !n.id.startsWith("appt-") &&
+          !n.id.startsWith("med-") &&
+          !n.id.startsWith("msg-"),
       );
 
       return [...newNotifications, ...customNotifications].sort((a, b) =>
         a.read === b.read ? 0 : a.read ? 1 : -1,
       );
     });
-  }, [assets, inventory, workOrders]);
+  }, [assets, inventory, workOrders, currentUser, activeHospital, appointments, medicationSchedules, telehealthMessages]);
 
   const handleAiSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -8390,6 +8542,468 @@ function App() {
                 ))}
             </div>
           </motion.div>
+
+          {/* Institutional Advanced Administrative Operations Desk */}
+          <div className="lg:col-span-4 bg-white dark:bg-slate-900 rounded-[3rem] p-8 border border-gray-150 dark:border-slate-800 shadow-sm space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 dark:border-slate-800 pb-4">
+              <div>
+                <span className="bg-primary-50 dark:bg-primary-950/40 text-primary-700 dark:text-primary-300 text-[9px] px-3.5 py-1.5 rounded-full font-black uppercase tracking-widest border border-primary-100/30 dark:border-primary-900/30 inline-block mb-2">
+                  {isRTL ? "منظومة الحوكمة الإدارية التخصصية" : "Specialized Institutional Governance Console"}
+                </span>
+                <h3 className="text-xl font-black text-slate-800 dark:text-slate-100 tracking-tight uppercase flex items-center gap-2">
+                  <ShieldCheck size={22} className="text-primary-600" />
+                  {isRTL ? "لوحة الإدارة والتدقيق الإداري التخصصي للمؤسسة" : "Specialized Institutional Administrative Audit Desk"}
+                </h3>
+                <p className="text-xs text-gray-400 dark:text-gray-500 font-bold mt-1">
+                  {isRTL 
+                    ? "إدارة الوحدات الإدارية الفرعية التخصصية التي تنفرد بها كل مؤسسة لمنع التداخل الهيكلي" 
+                    : "Manage institution-specific administrative segments and operational logs dynamically to ensure structural separation"}
+                </p>
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-950 px-4 py-2.5 rounded-2xl border border-slate-100 dark:border-slate-800 text-center shrink-0">
+                <span className="text-[10px] text-gray-400 font-black block uppercase tracking-wider">{isRTL ? "المؤسسة النشطة" : "Active Node Category"}</span>
+                <span className="text-xs font-black text-primary-600 uppercase tracking-widest mt-0.5 block">
+                  {activeHospital?.type === 'laboratory' ? 'Laboratory' : activeHospital?.type === 'pharmacy' ? 'Pharmacy' : activeHospital?.type === 'workshop' ? 'Workshop' : 'Hospital'}
+                </span>
+              </div>
+            </div>
+
+            {/* Render 1 of 4 specialized admin components based on node type */}
+            {(!activeHospital?.type || activeHospital?.type === "hospital") && (
+              <div className="space-y-4">
+                <div className="bg-primary-50/40 dark:bg-slate-950 p-5 rounded-3xl border border-primary-100/30">
+                  <h4 className="text-sm font-black text-primary-900 dark:text-primary-300 uppercase tracking-wider flex items-center gap-2 mb-1.5">
+                    🛏️ {isRTL ? "منظومة حجز وإدارة أسرة التنويم والغرف" : "Hospital Ward & Bed Management Console"}
+                  </h4>
+                  <p className="text-xs text-primary-700/80 dark:text-gray-400 font-medium">
+                    {isRTL 
+                      ? "تنظيم إقامة المرضى وعمليات التسكين وحجز الأسرّة في الأقسام الطبية المختلفة لمنع تداخل أجنحة التنويم." 
+                      : "Regulate subject boarding, ward occupancy, and specialized clinical bed tracking dynamically."}
+                  </p>
+                </div>
+
+                {/* Interactive list */}
+                <div className="overflow-hidden border border-slate-100 dark:border-slate-800 rounded-2xl">
+                  <table className="w-full text-left text-xs text-slate-500 dark:text-slate-400">
+                    <thead className="bg-slate-50 dark:bg-slate-950 text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                      <tr>
+                        <th className="p-3.5">{isRTL ? "الغرفة / الجناح" : "Room / Ward"}</th>
+                        <th className="p-3.5">{isRTL ? "رقم السرير" : "Bed No."}</th>
+                        <th className="p-3.5">{isRTL ? "المريض" : "Patient Name"}</th>
+                        <th className="p-3.5">{isRTL ? "تاريخ الدخول" : "Admission Date"}</th>
+                        <th className="p-3.5">{isRTL ? "حالة الإشغال" : "Status"}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {roomBookings.map((b, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition">
+                          <td className="p-3.5 font-bold text-slate-700 dark:text-slate-300">{b.room}</td>
+                          <td className="p-3.5 font-mono">{b.bed}</td>
+                          <td className="p-3.5 font-semibold text-slate-800 dark:text-slate-200">{b.patient}</td>
+                          <td className="p-3.5 font-mono">{b.date}</td>
+                          <td className="p-3.5">
+                            <span className="bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full font-bold text-[9px] uppercase tracking-wider">
+                              {b.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Add Booking Quick Form */}
+                <form 
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!newRoomNo || !newBedNo || !newRoomPatient) {
+                      toast.error(isRTL ? "الرجاء إدخال الغرفة والسرير واسم المريض" : "Please supply room number, bed ID, and patient name");
+                      return;
+                    }
+                    const newBk = { room: newRoomNo, bed: newBedNo, patient: newRoomPatient, status: "Occupied", date: new Date().toISOString().split("T")[0] };
+                    setRoomBookings([...roomBookings, newBk]);
+                    setNewRoomNo("");
+                    setNewBedNo("");
+                    setNewRoomPatient("");
+                    toast.success(isRTL ? "تم حجز السرير وتسجيل المريض بنجاح!" : "Bed reservation logged and updated successfully!");
+                  }}
+                  className="bg-slate-50 dark:bg-slate-950 p-5 rounded-2xl border border-slate-100 dark:border-slate-850 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end"
+                >
+                  <div>
+                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1">{isRTL ? "الغرفة / الجناح" : "Room / Ward"}</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. Ward-B4" 
+                      value={newRoomNo} 
+                      onChange={(e) => setNewRoomNo(e.target.value)}
+                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1">{isRTL ? "رقم السرير" : "Bed No."}</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. Bed-06" 
+                      value={newBedNo} 
+                      onChange={(e) => setNewBedNo(e.target.value)}
+                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1">{isRTL ? "اسم المريض" : "Patient Name"}</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. Omar Khalid" 
+                      value={newRoomPatient} 
+                      onChange={(e) => setNewRoomPatient(e.target.value)}
+                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold"
+                    />
+                  </div>
+                  <button 
+                    type="submit"
+                    className="bg-primary-600 hover:bg-primary-700 text-white font-black text-[10px] uppercase tracking-widest py-3 px-4 rounded-xl transition"
+                  >
+                    ⚡ {isRTL ? "تسجيل وحجز السرير" : "Book Clinical Bed"}
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {activeHospital?.type === "laboratory" && (
+              <div className="space-y-4">
+                <div className="bg-indigo-50/40 dark:bg-slate-950 p-5 rounded-3xl border border-indigo-100/30">
+                  <h4 className="text-sm font-black text-indigo-900 dark:text-indigo-300 uppercase tracking-wider flex items-center gap-2 mb-1.5">
+                    🧪 {isRTL ? "دليل الفحوصات الطبية والمعدلات المخبرية" : "Diagnostic Lab Test Registry & Ranges Directory"}
+                  </h4>
+                  <p className="text-xs text-indigo-700/80 dark:text-gray-400 font-medium">
+                    {isRTL 
+                      ? "إدارة كتالوج فحوصات وتحاليل المعمل المعتمدة، وتحديد العينات الطبية والمعدلات الطبيعية القياسية." 
+                      : "Regulate active testing menus, required biospecimen types, and physiological normal bounds."}
+                  </p>
+                </div>
+
+                {/* Interactive list */}
+                <div className="overflow-hidden border border-slate-100 dark:border-slate-800 rounded-2xl">
+                  <table className="w-full text-left text-xs text-slate-500 dark:text-slate-400">
+                    <thead className="bg-slate-50 dark:bg-slate-950 text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                      <tr>
+                        <th className="p-3.5">{isRTL ? "رمز الفحص" : "Test Code"}</th>
+                        <th className="p-3.5">{isRTL ? "اسم التحليل الطبي" : "Test Parameter"}</th>
+                        <th className="p-3.5">{isRTL ? "نوع العينة المطلوبة" : "Specimen Type"}</th>
+                        <th className="p-3.5">{isRTL ? "المعدل الطبيعي الآمن" : "Reference Normal Range"}</th>
+                        <th className="p-3.5">{isRTL ? "السعر الأساسي" : "Base Cost"}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {labCatalogs.map((l, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition">
+                          <td className="p-3.5 font-bold text-indigo-600 dark:text-indigo-400 font-mono">{l.code}</td>
+                          <td className="p-3.5 font-semibold text-slate-800 dark:text-slate-200">{l.name}</td>
+                          <td className="p-3.5 text-slate-600 dark:text-slate-300">{l.sample}</td>
+                          <td className="p-3.5 font-mono text-slate-600 dark:text-slate-300">{l.normalRange}</td>
+                          <td className="p-3.5 font-bold text-slate-800 dark:text-slate-200">{currencySymbol}{l.price}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Add Test Quick Form */}
+                <form 
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!newLabCode || !newLabName || !newLabRange) {
+                      toast.error(isRTL ? "الرجاء إدخال الرمز والاسم والمعدل الطبيعي للفحص" : "Please supply test code, name, and standard reference bounds");
+                      return;
+                    }
+                    const newTest = { code: newLabCode.toUpperCase(), name: newLabName, sample: "Serum / Plasma", normalRange: newLabRange, price: newLabPrice };
+                    setLabCatalogs([...labCatalogs, newTest]);
+                    setNewLabCode("");
+                    setNewLabName("");
+                    setNewLabRange("");
+                    setNewLabPrice(100);
+                    toast.success(isRTL ? "تم إدراج الفحص المخبري الجديد في الدليل بنجاح!" : "Diagnostic lab test registered to catalog ledger!");
+                  }}
+                  className="bg-slate-50 dark:bg-slate-950 p-5 rounded-2xl border border-slate-100 dark:border-slate-850 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end"
+                >
+                  <div>
+                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1">{isRTL ? "الرمز" : "Code"}</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. ALT" 
+                      value={newLabCode} 
+                      onChange={(e) => setNewLabCode(e.target.value)}
+                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1">{isRTL ? "اسم التحليل" : "Test Name"}</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. Alanine Aminotransferase" 
+                      value={newLabName} 
+                      onChange={(e) => setNewLabName(e.target.value)}
+                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1">{isRTL ? "المعدل الطبيعي" : "Normal Range"}</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. 7 - 56 U/L" 
+                      value={newLabRange} 
+                      onChange={(e) => setNewLabRange(e.target.value)}
+                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1">{isRTL ? "السعر المعتمد" : "Approved Price"}</label>
+                    <input 
+                      type="number" 
+                      value={newLabPrice} 
+                      onChange={(e) => setNewLabPrice(Number(e.target.value))}
+                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold"
+                    />
+                  </div>
+                  <button 
+                    type="submit"
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[10px] uppercase tracking-widest py-3 px-4 rounded-xl transition animate-pulse"
+                  >
+                    ⚡ {isRTL ? "إدراج الفحص بالدليل" : "Add Test to Catalog"}
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {activeHospital?.type === "pharmacy" && (
+              <div className="space-y-4">
+                <div className="bg-emerald-50/40 dark:bg-slate-950 p-5 rounded-3xl border border-emerald-100/30">
+                  <h4 className="text-sm font-black text-emerald-900 dark:text-indigo-300 uppercase tracking-wider flex items-center gap-2 mb-1.5">
+                    💊 {isRTL ? "سجل موردي الأدوية وعقود المشتريات الطبية" : "Supplier Management & Wholesaler Procurement Log"}
+                  </h4>
+                  <p className="text-xs text-emerald-700/80 dark:text-gray-400 font-medium">
+                    {isRTL 
+                      ? "إدارة وتصنيف شركات توزيع الأدوية والموزعين المعتمدين وتوثيق تراخيص وزارة الصحة للتعاقدات." 
+                      : "Regulate wholesale pharmaceutical distributors, verify medical licenses, and catalog supplier networks."}
+                  </p>
+                </div>
+
+                {/* Interactive list */}
+                <div className="overflow-hidden border border-slate-100 dark:border-slate-800 rounded-2xl">
+                  <table className="w-full text-left text-xs text-slate-500 dark:text-slate-400">
+                    <thead className="bg-slate-50 dark:bg-slate-950 text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                      <tr>
+                        <th className="p-3.5">{isRTL ? "معرف الموزع" : "Distributor ID"}</th>
+                        <th className="p-3.5">{isRTL ? "اسم الشركة الموردة" : "Supplier / Wholesaler Name"}</th>
+                        <th className="p-3.5">{isRTL ? "رقم ترخيص وزارة الصحة" : "MOH License No."}</th>
+                        <th className="p-3.5">{isRTL ? "البريد الإلكتروني للطلب" : "Ordering Contact"}</th>
+                        <th className="p-3.5">{isRTL ? "الفئة الدوائية" : "Supplied Categories"}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {pharmacySuppliers.map((s, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition">
+                          <td className="p-3.5 font-bold text-slate-700 dark:text-slate-300 font-mono">{s.id}</td>
+                          <td className="p-3.5 font-semibold text-emerald-600 dark:text-emerald-400">{s.name}</td>
+                          <td className="p-3.5 font-mono text-slate-600 dark:text-slate-300">{s.license}</td>
+                          <td className="p-3.5 text-slate-600 dark:text-slate-300">{s.contact}</td>
+                          <td className="p-3.5">
+                            <span className="bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 px-2.5 py-1 rounded-lg font-bold text-[9px] uppercase tracking-wider">
+                              {s.category}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Add Supplier Quick Form */}
+                <form 
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!newSupplierName || !newSupplierLicense || !newSupplierContact) {
+                      toast.error(isRTL ? "الرجاء إدخال اسم المورد وترخيصه وقنوات التواصل" : "Please supply distributor name, MOH license number, and email contact");
+                      return;
+                    }
+                    const newSup = { 
+                      id: "SUP-0" + (pharmacySuppliers.length + 1), 
+                      name: newSupplierName, 
+                      license: newSupplierLicense, 
+                      contact: newSupplierContact, 
+                      category: newSupplierCategory || (isRTL ? "أدوية عامة ومستلزمات" : "General Pharma & Consumables") 
+                    };
+                    setPharmacySuppliers([...pharmacySuppliers, newSup]);
+                    setNewSupplierName("");
+                    setNewSupplierLicense("");
+                    setNewSupplierContact("");
+                    setNewSupplierCategory("");
+                    toast.success(isRTL ? "تم اعتماد وتسجيل المورد الدوائي بنظام الصيدلية!" : "Medical wholesaler approved and cataloged in system!");
+                  }}
+                  className="bg-slate-50 dark:bg-slate-950 p-5 rounded-2xl border border-slate-100 dark:border-slate-850 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end"
+                >
+                  <div>
+                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1">{isRTL ? "اسم الشركة" : "Supplier Name"}</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. Ibn Sina Pharma" 
+                      value={newSupplierName} 
+                      onChange={(e) => setNewSupplierName(e.target.value)}
+                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1">{isRTL ? "رقم ترخيص وزارة الصحة" : "MOH License"}</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. MOH-9912" 
+                      value={newSupplierLicense} 
+                      onChange={(e) => setNewSupplierLicense(e.target.value)}
+                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1">{isRTL ? "بريد التواصل" : "Email Contact"}</label>
+                    <input 
+                      type="email" 
+                      placeholder="orders@ibnsina.com" 
+                      value={newSupplierContact} 
+                      onChange={(e) => setNewSupplierContact(e.target.value)}
+                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1">{isRTL ? "فئة الأدوية" : "Pharma Category"}</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. Critical Oncology" 
+                      value={newSupplierCategory} 
+                      onChange={(e) => setNewSupplierCategory(e.target.value)}
+                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold"
+                    />
+                  </div>
+                  <button 
+                    type="submit"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[10px] uppercase tracking-widest py-3 px-4 rounded-xl transition"
+                  >
+                    ⚡ {isRTL ? "اعتماد الموزع" : "Approve Distributor"}
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {activeHospital?.type === "workshop" && (
+              <div className="space-y-4">
+                <div className="bg-amber-50/40 dark:bg-slate-950 p-5 rounded-3xl border border-amber-100/30">
+                  <h4 className="text-sm font-black text-amber-900 dark:text-amber-300 uppercase tracking-wider flex items-center gap-2 mb-1.5">
+                    ⚙️ {isRTL ? "سجلات المعايرة الدورية واختبارات السلامة للأجهزة" : "Calibration Ledger & Biomedical Safety Verifications"}
+                  </h4>
+                  <p className="text-xs text-amber-700/80 dark:text-gray-400 font-medium">
+                    {isRTL 
+                      ? "إدارة مواعيد معايرة وتدقيق سلامة الأجهزة الطبية في الورش التخصصية لضمان الامتثال لشهادات الآمان الوطنية." 
+                      : "Regulate diagnostic accuracy verifications, electrical leakage testing, and biomedical certificates."}
+                  </p>
+                </div>
+
+                {/* Interactive list */}
+                <div className="overflow-hidden border border-slate-100 dark:border-slate-800 rounded-2xl">
+                  <table className="w-full text-left text-xs text-slate-500 dark:text-slate-400">
+                    <thead className="bg-slate-50 dark:bg-slate-950 text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                      <tr>
+                        <th className="p-3.5">{isRTL ? "رمز المعايرة" : "Verification ID"}</th>
+                        <th className="p-3.5">{isRTL ? "الجهاز الطبي المفحوص" : "Biomedical Asset Tested"}</th>
+                        <th className="p-3.5">{isRTL ? "تاريخ آخر اختبار معايرة" : "Last Verification Date"}</th>
+                        <th className="p-3.5">{isRTL ? "حالة الأمان الطبي" : "Safety Compliance Status"}</th>
+                        <th className="p-3.5">{isRTL ? "المهندس المسؤول" : "Certifying Engineer"}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {deviceCalibrations.map((c, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition">
+                          <td className="p-3.5 font-bold text-slate-700 dark:text-slate-300 font-mono">{c.id}</td>
+                          <td className="p-3.5 font-semibold text-amber-600 dark:text-amber-400">{c.assetName}</td>
+                          <td className="p-3.5 font-mono">{c.date}</td>
+                          <td className="p-3.5">
+                            <span className={`px-2.5 py-1 rounded-full font-bold text-[9px] uppercase tracking-wider ${
+                              c.status.includes("Safe") 
+                                ? "bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300" 
+                                : "bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 animate-pulse"
+                            }`}>
+                              {c.status}
+                            </span>
+                          </td>
+                          <td className="p-3.5 font-medium text-slate-600 dark:text-slate-400">{c.engineer}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Add Calibration Quick Form */}
+                <form 
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!newCalibAsset || !newCalibEngineer) {
+                      toast.error(isRTL ? "الرجاء إدخال اسم الجهاز والمهندس المسؤول عن المعايرة" : "Please supply biomedical asset name and certifying technician");
+                      return;
+                    }
+                    const newCal = { 
+                      id: "CAL-" + Math.floor(100 + Math.random() * 900), 
+                      assetName: newCalibAsset, 
+                      date: new Date().toISOString().split("T")[0], 
+                      status: newCalibStatus, 
+                      engineer: newCalibEngineer 
+                    };
+                    setDeviceCalibrations([...deviceCalibrations, newCal]);
+                    setNewCalibAsset("");
+                    setNewCalibEngineer("");
+                    setNewCalibStatus("Certified / Safe");
+                    toast.success(isRTL ? "تم تسجيل شهادة المعايرة الطبية للجهاز بنجاح!" : "Biomedical safety verification certificate registered successfully!");
+                  }}
+                  className="bg-slate-50 dark:bg-slate-950 p-5 rounded-2xl border border-slate-100 dark:border-slate-850 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end"
+                >
+                  <div>
+                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1">{isRTL ? "الجهاز الطبي" : "Biomedical Asset"}</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. Maquet Servo-i Ventilator" 
+                      value={newCalibAsset} 
+                      onChange={(e) => setNewCalibAsset(e.target.value)}
+                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1">{isRTL ? "حالة الأمان الطبي" : "Safety Status"}</label>
+                    <select 
+                      value={newCalibStatus} 
+                      onChange={(e) => setNewCalibStatus(e.target.value)}
+                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold"
+                    >
+                      <option value="Certified / Safe">{isRTL ? "معتمد وآمن طبياً" : "Certified / Safe"}</option>
+                      <option value="Calibration Required">{isRTL ? "بحاجة لمعايرة وصيانة" : "Calibration Required"}</option>
+                      <option value="Out of Order / Failed">{isRTL ? "غير آمن / خارج الخدمة" : "Out of Order / Failed"}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-black uppercase text-gray-400 mb-1">{isRTL ? "المهندس الفاحص" : "Testing Engineer"}</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. Eng. Tariq" 
+                      value={newCalibEngineer} 
+                      onChange={(e) => setNewCalibEngineer(e.target.value)}
+                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold"
+                    />
+                  </div>
+                  <button 
+                    type="submit"
+                    className="bg-amber-600 hover:bg-amber-700 text-white font-black text-[10px] uppercase tracking-widest py-3 px-4 rounded-xl transition"
+                  >
+                    ⚡ {isRTL ? "توثيق المعايرة والسلامة" : "Log Calibration Event"}
+                  </button>
+                </form>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -10423,25 +11037,43 @@ function App() {
         <div className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">
-              {t.periodicReports} Type
+              {isRTL ? "نوع التقرير الهيكلي المخصص" : "Specialized Structural Report Type"} {activeHospital?.type && `[${activeHospital.type.toUpperCase()}]`}
             </label>
             <select
               value={reportType}
               onChange={(e) => setReportType(e.target.value)}
-              className="w-full p-3.5 bg-slate-50/80 border border-slate-200/80 rounded-2xl focus:ring-2 focus:ring-primary-500 outline-none text-xs font-semibold"
+              className="w-full p-3.5 bg-slate-50/80 border border-slate-200/80 rounded-2xl focus:ring-2 focus:ring-primary-500 outline-none text-xs font-semibold uppercase tracking-wider text-primary-700"
             >
-              <option value="assets">{t.assets}</option>
-              <option value="workOrders">{t.workOrders}</option>
-              <option value="inventory">{t.inventory}</option>
-              <option value="examinations">Examinations (EMR)</option>
-              <option value="appointments">{t.appointments}</option>
-              <option value="billing">{t.billing}</option>
-              <option value="patients">{isRTL ? "سجلات المرضى" : "Patients Registry"}</option>
-              <option value="hospitals">{isRTL ? "المستشفيات والعيادات" : "Hospitals Directory"}</option>
-              <option value="pharmacies">{isRTL ? "الصيدليات" : "Pharmacies"}</option>
-              <option value="labs">{isRTL ? "المعامل والمختبرات" : "Laboratories"}</option>
-              <option value="workshops">{isRTL ? "ورش الصيانة" : "Workshops"}</option>
-              <option value="nursesStations">{isRTL ? "محطات التمريض" : "Nurses Stations"}</option>
+              {(!activeHospital?.type || activeHospital?.type === "hospital") && (
+                <>
+                  <option value="patients">📊 {isRTL ? "تقرير سجلات المرضى والقبول" : "Patients Registry & Admissions"}</option>
+                  <option value="appointments">📅 {isRTL ? "جدولة العيادات والمواعيد الطبية" : "Clinical Appointments Ledger"}</option>
+                  <option value="billing">💰 {isRTL ? "الحسابات والفواتير الطبية" : "Hospital Billings & Claims"}</option>
+                  <option value="nursesStations">🏥 {isRTL ? "تقرير محطات التمريض والأقسام" : "Nurses Stations & Ward Occupancy"}</option>
+                  <option value="assets">🛠️ {isRTL ? "أصول ومعدات المستشفى العامة" : "Hospital Assets Directory"}</option>
+                </>
+              )}
+              {activeHospital?.type === "laboratory" && (
+                <>
+                  <option value="examinations">🧪 {isRTL ? "فحوصات ونتائج تحاليل المرضى" : "Lab Test Results & Examinations"}</option>
+                  <option value="labs">🔬 {isRTL ? "فروع ومراكز التحاليل الطبية" : "Laboratories & Test Catalogs"}</option>
+                  <option value="assets">🛡️ {isRTL ? "أجهزة ومعدات ومعايرة المختبر" : "Lab Equipment Assets"}</option>
+                </>
+              )}
+              {activeHospital?.type === "pharmacy" && (
+                <>
+                  <option value="inventory">📦 {isRTL ? "مخزون الأدوية والسموم والمستلزمات" : "Medication stock & Poisons"}</option>
+                  <option value="pharmacies">🛒 {isRTL ? "مبيعات الصيدلية ونقاط الصرف" : "Pharmacy Dispensing & POS Logs"}</option>
+                </>
+              )}
+              {activeHospital?.type === "workshop" && (
+                <>
+                  <option value="workOrders">⚙️ {isRTL ? "بلاغات وأوامر الصيانة والتشغيل" : "Biomedical Service Work Orders"}</option>
+                  <option value="assets">🔌 {isRTL ? "الأجهزة الطبية الخاضعة للصيانة الوقائية" : "Serviced Biomedical Assets"}</option>
+                  <option value="inventory">🔩 {isRTL ? "مخزون قطع الغيار ومستهلكات الصيانة" : "Workshop Spare Parts Inventory"}</option>
+                  <option value="workshops">🏭 {isRTL ? "ورش الصيانة ومزودي الخدمة" : "Active Engineering Workshops"}</option>
+                </>
+              )}
             </select>
           </div>
 
@@ -14929,11 +15561,25 @@ function App() {
   const renderTelehealthChat = () => {
     // Determine contact list
     const isPatient = currentUser?.role === "Patient";
+    const isSuperAdmin = currentUser?.role === "Super Admin";
     const availableDocs = users.filter(u => u.role === "Doctor" || u.role === "Consultant");
     
-    const contacts = isPatient 
-      ? availableDocs
-      : patients;
+    let contacts: any[] = [];
+    if (isPatient) {
+      contacts = availableDocs;
+    } else if (isSuperAdmin) {
+      const allOtherUsers = users.filter(u => u.id !== currentUser.id);
+      contacts = [...allOtherUsers, ...patients];
+      // Deduplicate by ID
+      const seen = new Set();
+      contacts = contacts.filter(c => {
+        if(seen.has(c.id)) return false;
+        seen.add(c.id);
+        return true;
+      });
+    } else {
+      contacts = patients;
+    }
       
     const contactSearch = telehealthContactSearch;
     const setContactSearch = setTelehealthContactSearch;
@@ -15101,8 +15747,8 @@ function App() {
               </div>
             </div>
             
-            {/* Availability Toggle for Doctors */}
-            {(currentUser.role === "Doctor" || currentUser.role === "Consultant") && (
+            {/* Availability Toggle for Doctors & Admins */}
+            {(currentUser.role === "Doctor" || currentUser.role === "Consultant" || currentUser.role === "Super Admin") && (
               <button 
                 onClick={toggleAvailability}
                 className={`p-1.5 rounded-xl border transition-all ${
@@ -15321,8 +15967,8 @@ function App() {
                             {dateFormatted}
                             
                             {isOwn && (
-                              <span className="text-[10px] font-mono font-black ml-1 select-none flex items-center justify-center opacity-70" title={isRecent ? "Delivered" : "Read"}>
-                                {isRecent ? "✓" : "✓✓"}
+                              <span className="text-[10px] ml-1 flex items-center justify-center opacity-70" title={isRecent ? "Delivered" : "Read"}>
+                                {isRecent ? <Check size={12} /> : <CheckCheck size={12} className="text-emerald-400" />}
                               </span>
                             )}
                           </div>
@@ -15331,6 +15977,7 @@ function App() {
                     );
                   })
                 )}
+                <div ref={chatMessagesEndRef} />
               </div>
               
               {/* Message Composer */}
@@ -15338,14 +15985,12 @@ function App() {
                 <form onSubmit={handleSendMessage} className="flex gap-2 w-full">
                   <button
                     type="button"
-                    onClick={handleSendPing}
-                    className="bg-rose-600 hover:bg-rose-500 text-white font-black px-4 rounded-2xl transition-all shadow-lg shadow-rose-600/20 text-[10px] uppercase tracking-widest active:scale-95 flex items-center justify-center gap-1.5 shrink-0"
-                    title={isRTL ? "إرسال تنبيه!" : "Send Urgent Alert!"}
+                    onClick={() => toast(isRTL ? "تم فتح نافذة المرفقات (قريباً)" : "Attachment window opened (coming soon)")}
+                    className="p-3 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 rounded-2xl transition-all flex items-center justify-center shrink-0"
+                    title={isRTL ? "إرفاق ملف" : "Attach File"}
                   >
-                    <Bell size={14} className="animate-bounce" />
-                    <span>{isRTL ? "تنبيه" : "ALERT"}</span>
+                    <Paperclip size={18} />
                   </button>
-                  
                   <div className="flex-1 relative">
                     <input 
                       type="text"
@@ -15362,7 +16007,7 @@ function App() {
                     className="bg-indigo-600 hover:bg-indigo-500 text-white font-black uppercase tracking-widest text-[10px] px-6 py-3.5 rounded-2xl disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-md active:scale-95 flex items-center gap-1.5"
                   >
                     <Send size={14} />
-                    <span>{isRTL ? "إرسال" : "Send"}</span>
+                    <span className="hidden sm:inline">{isRTL ? "إرسال" : "Send"}</span>
                   </button>
                 </form>
               </div>
@@ -25795,6 +26440,225 @@ function App() {
           </div>
         </div>
 
+        {/* Specialized Institutional Financial Operations Panel */}
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-gray-150 dark:border-slate-800 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+            <div>
+              <h3 className="text-sm font-black text-slate-800 dark:text-slate-100 uppercase tracking-widest flex items-center gap-2">
+                <ShieldCheck size={18} className="text-primary-600" />
+                {isRTL ? "الخيارات والعمليات المالية التخصصية للمؤسسة" : "Specialized Institutional Financial Operations"}
+              </h3>
+              <p className="text-[10px] text-gray-400 font-bold mt-0.5">
+                {isRTL 
+                  ? `أدوات محاسبية تخصصية تم تفعيلها تلقائياً لمؤسسة من نوع: ${activeHospital?.type === 'laboratory' ? 'معمل تحاليل' : activeHospital?.type === 'pharmacy' ? 'صيدلية طبية' : activeHospital?.type === 'workshop' ? 'ورشة صيانة وأجهزة طاقة' : 'مستشفى تخصصي'}`
+                  : `Tailored financial triggers loaded for active institution node category: ${(activeHospital?.type || 'hospital').toUpperCase()}`
+                }
+              </p>
+            </div>
+            <span className="text-[9px] font-black uppercase tracking-widest bg-primary-50 dark:bg-primary-950/40 text-primary-700 dark:text-primary-300 px-3 py-1 rounded-full border border-primary-100/40 dark:border-primary-900/30">
+              {activeHospital?.type || "hospital"}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {(!activeHospital?.type || activeHospital?.type === "hospital") && (
+              <>
+                <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl hover:bg-slate-100/50 dark:hover:bg-slate-900/30 transition border border-transparent hover:border-slate-200 dark:hover:border-slate-800">
+                  <h4 className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-tight flex items-center gap-1.5">
+                    🏥 {isRTL ? "تسوية فواتير التأمين" : "Insurance Claim Settlements"}
+                  </h4>
+                  <p className="text-[10px] text-gray-400 mt-1.5 font-bold">
+                    {isRTL ? "جرد مطالبات شركات التأمين الصحي والربط مع الرقم الوطني" : "Audit outstanding health insurance reimbursement pools"}
+                  </p>
+                  <button 
+                    onClick={() => toast.success(isRTL ? "تم بدء تسييل مطالبات التأمين الصحي... جاري المزامنة" : "Syncing insurance claims with national pool...")}
+                    className="mt-3 w-full bg-white dark:bg-slate-900 hover:bg-primary-50 dark:hover:bg-primary-950 text-primary-600 border border-primary-205 hover:border-primary-300 dark:border-slate-850 py-1.5 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all"
+                  >
+                    {isRTL ? "مزامنة وتسوية الآن" : "Sync & Reconcile"}
+                  </button>
+                </div>
+
+                <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl hover:bg-slate-100/50 dark:hover:bg-slate-900/30 transition border border-transparent hover:border-slate-200 dark:hover:border-slate-800">
+                  <h4 className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-tight flex items-center gap-1.5">
+                    🛏️ {isRTL ? "رواتب وبدلات الكادر الطبي" : "Clinical Staff Payroll Ledger"}
+                  </h4>
+                  <p className="text-[10px] text-gray-400 mt-1.5 font-bold">
+                    {isRTL ? "مراجعة رواتب وبدلات الأطباء والمناوبات المسجلة بالمستشفى" : "Verify clinical shift premiums and staff base salaries"}
+                  </p>
+                  <button 
+                    onClick={() => toast.success(isRTL ? "تم ترحيل كشف البدلات والرواتب الطبية للتدقيق" : "Transferred clinical shift roster premium ledger...")}
+                    className="mt-3 w-full bg-white dark:bg-slate-900 hover:bg-primary-50 dark:hover:bg-primary-950 text-primary-600 border border-primary-205 hover:border-primary-300 dark:border-slate-850 py-1.5 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all"
+                  >
+                    {isRTL ? "تسييل البدلات الطبية" : "Disburse Shift Premiums"}
+                  </button>
+                </div>
+
+                <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl hover:bg-slate-100/50 dark:hover:bg-slate-900/30 transition border border-transparent hover:border-slate-200 dark:hover:border-slate-800">
+                  <h4 className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-tight flex items-center gap-1.5">
+                    ⚡ {isRTL ? "تسويات الإقامة والعناية" : "ICU & Ward Bed Revenues"}
+                  </h4>
+                  <p className="text-[10px] text-gray-400 mt-1.5 font-bold">
+                    {isRTL ? "احتساب وتسييل عوائد غرف العناية المركزة والأسرة المحجوزة" : "Verify and reconcile bed stay fees with patient bills"}
+                  </p>
+                  <button 
+                    onClick={() => toast.success(isRTL ? "تم حساب وتحديث قيود عوائد الأسرة والإقامة" : "Bed stay revenues recalculated and ledger updated")}
+                    className="mt-3 w-full bg-white dark:bg-slate-900 hover:bg-primary-50 dark:hover:bg-primary-950 text-primary-600 border border-primary-205 hover:border-primary-300 dark:border-slate-850 py-1.5 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all"
+                  >
+                    {isRTL ? "جرد عوائد الغرف" : "Audit Stay Revenues"}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {activeHospital?.type === "laboratory" && (
+              <>
+                <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl hover:bg-slate-100/50 dark:hover:bg-slate-900/30 transition border border-transparent hover:border-slate-200 dark:hover:border-slate-800">
+                  <h4 className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-tight flex items-center gap-1.5">
+                    🔬 {isRTL ? "تسعير الفحوصات الطبية" : "Configure Test Pricing Grid"}
+                  </h4>
+                  <p className="text-[10px] text-gray-400 mt-1.5 font-bold">
+                    {isRTL ? "تحديث أسعار وقوائم التحاليل الطبية والربط مع الفواتير" : "Update values and prices of different diagnostic test panels"}
+                  </p>
+                  <button 
+                    onClick={() => toast.success(isRTL ? "تم تفعيل جدول أسعار الفحوصات المحدثة" : "Test pricing grid updated successfully!")}
+                    className="mt-3 w-full bg-white dark:bg-slate-900 hover:bg-primary-50 dark:hover:bg-primary-950 text-primary-600 border border-primary-205 hover:border-primary-300 dark:border-slate-850 py-1.5 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all"
+                  >
+                    {isRTL ? "تعديل جدول الأسعار" : "Manage Pricing Grid"}
+                  </button>
+                </div>
+
+                <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl hover:bg-slate-100/50 dark:hover:bg-slate-900/30 transition border border-transparent hover:border-slate-200 dark:hover:border-slate-800">
+                  <h4 className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-tight flex items-center gap-1.5">
+                    🧪 {isRTL ? "شراء وتوريد الكواشف والمحاليل" : "Procure Lab Reagents"}
+                  </h4>
+                  <p className="text-[10px] text-gray-400 mt-1.5 font-bold">
+                    {isRTL ? "تسجيل موازنة وتوريد محاليل معامل التحليل والمستهلكات الطبية" : "Log diagnostic reagent orders and chemical stock costs"}
+                  </p>
+                  <button 
+                    onClick={() => toast.success(isRTL ? "تمت إضافة أمر موازنة الكواشف والمستلزمات الطبية" : "Reagents supply balance order issued successfully!")}
+                    className="mt-3 w-full bg-white dark:bg-slate-900 hover:bg-primary-50 dark:hover:bg-primary-950 text-primary-600 border border-primary-205 hover:border-primary-300 dark:border-slate-850 py-1.5 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all"
+                  >
+                    {isRTL ? "أمر توريد كواشف" : "Order Reagents"}
+                  </button>
+                </div>
+
+                <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl hover:bg-slate-100/50 dark:hover:bg-slate-900/30 transition border border-transparent hover:border-slate-200 dark:hover:border-slate-800">
+                  <h4 className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-tight flex items-center gap-1.5">
+                    🏢 {isRTL ? "تسويات التحاليل المتعاقد عليها" : "Contracted Laboratory Billings"}
+                  </h4>
+                  <p className="text-[10px] text-gray-400 mt-1.5 font-bold">
+                    {isRTL ? "تسوية فواتير التحاليل المحالة من المستشفيات والمراكز الخارجية" : "Verify outstanding lab fees sent from partner clinics"}
+                  </p>
+                  <button 
+                    onClick={() => toast.success(isRTL ? "تم جرد وطلب تسوية الحسابات من العيادات المتعاقدة" : "Partner clinic testing fee logs requested for settlement")}
+                    className="mt-3 w-full bg-white dark:bg-slate-900 hover:bg-primary-50 dark:hover:bg-primary-950 text-primary-600 border border-primary-205 hover:border-primary-300 dark:border-slate-850 py-1.5 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all"
+                  >
+                    {isRTL ? "طلب تسوية الحسابات" : "Reconcile Partners"}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {activeHospital?.type === "pharmacy" && (
+              <>
+                <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl hover:bg-slate-100/50 dark:hover:bg-slate-900/30 transition border border-transparent hover:border-slate-200 dark:hover:border-slate-800">
+                  <h4 className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-tight flex items-center gap-1.5">
+                    📦 {isRTL ? "طلب توريد شحنة أدوية" : "Wholesale Medicine Procurement"}
+                  </h4>
+                  <p className="text-[10px] text-gray-400 mt-1.5 font-bold">
+                    {isRTL ? "عمل طلب توريد وشراء أدوية ومستلزمات جديدة من شركات التوزيع" : "Draft wholesale purchase order from registered manufacturers"}
+                  </p>
+                  <button 
+                    onClick={() => toast.success(isRTL ? "تم إصدار طلب توريد الأدوية المجمع للمستودع" : "Wholesale drug procurement order generated")}
+                    className="mt-3 w-full bg-white dark:bg-slate-900 hover:bg-primary-50 dark:hover:bg-primary-950 text-primary-600 border border-primary-205 hover:border-primary-300 dark:border-slate-850 py-1.5 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all"
+                  >
+                    {isRTL ? "إصدار طلب توريد" : "Issue Purchase Order"}
+                  </button>
+                </div>
+
+                <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl hover:bg-slate-100/50 dark:hover:bg-slate-900/30 transition border border-transparent hover:border-slate-200 dark:hover:border-slate-800">
+                  <h4 className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-tight flex items-center gap-1.5">
+                    📈 {isRTL ? "تعديل أسعار الأدوية المقيدة" : "Adjust Medicine Price Caps"}
+                  </h4>
+                  <p className="text-[10px] text-gray-400 mt-1.5 font-bold">
+                    {isRTL ? "تعديل هوامش الربح والأسعار الرسمية للأدوية المقيدة" : "Verify price lists with official drug administration ceilings"}
+                  </p>
+                  <button 
+                    onClick={() => toast.success(isRTL ? "تم تحديث ومزامنة هوامش أسعار الصيدلية" : "Pharmacy price caps synced successfully")}
+                    className="mt-3 w-full bg-white dark:bg-slate-900 hover:bg-primary-50 dark:hover:bg-primary-950 text-primary-600 border border-primary-205 hover:border-primary-300 dark:border-slate-850 py-1.5 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all"
+                  >
+                    {isRTL ? "مزامنة وتحديث الأسعار" : "Sync Price List"}
+                  </button>
+                </div>
+
+                <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl hover:bg-slate-100/50 dark:hover:bg-slate-900/30 transition border border-transparent hover:border-slate-200 dark:hover:border-slate-800">
+                  <h4 className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-tight flex items-center gap-1.5">
+                    🗑️ {isRTL ? "إعدام وتسييل الأدوية التالفة" : "Expired Medication Asset Write-off"}
+                  </h4>
+                  <p className="text-[10px] text-gray-400 mt-1.5 font-bold">
+                    {isRTL ? "تسجيل خسائر وإعدام الأدوية منتهية الصلاحية في الدفاتر المالية" : "Record financial write-offs and safe disposal logs for expired stock"}
+                  </p>
+                  <button 
+                    onClick={() => toast.success(isRTL ? "تم تسجيل تسييل وإهلاك الأدوية منتهية الصلاحية" : "Expired pharmaceutical inventory written off")}
+                    className="mt-3 w-full bg-white dark:bg-slate-900 hover:bg-primary-50 dark:hover:bg-primary-950 text-primary-600 border border-primary-205 hover:border-primary-300 dark:border-slate-850 py-1.5 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all"
+                  >
+                    {isRTL ? "تسجيل خسارة إهلاك" : "Record Write-off"}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {activeHospital?.type === "workshop" && (
+              <>
+                <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl hover:bg-slate-100/50 dark:hover:bg-slate-900/30 transition border border-transparent hover:border-slate-200 dark:hover:border-slate-800">
+                  <h4 className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-tight flex items-center gap-1.5">
+                    ⚙️ {isRTL ? "مشتريات قطع الغيار الطبية" : "Spare Parts Procurement Log"}
+                  </h4>
+                  <p className="text-[10px] text-gray-400 mt-1.5 font-bold">
+                    {isRTL ? "مراجعة وتسجيل فواتير شراء قطع الغيار والصمامات للأجهزة" : "Log procurement costs of spare parts and replacement valves"}
+                  </p>
+                  <button 
+                    onClick={() => toast.success(isRTL ? "تم جرد وإثبات فواتير قطع الغيار ماليًا" : "Spare parts inventory invoice logged to ledger")}
+                    className="mt-3 w-full bg-white dark:bg-slate-900 hover:bg-primary-50 dark:hover:bg-primary-950 text-primary-600 border border-primary-205 hover:border-primary-300 dark:border-slate-850 py-1.5 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all"
+                  >
+                    {isRTL ? "تسجيل فواتير قطع الغيار" : "Log Parts Invoices"}
+                  </button>
+                </div>
+
+                <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl hover:bg-slate-100/50 dark:hover:bg-slate-900/30 transition border border-transparent hover:border-slate-200 dark:hover:border-slate-800">
+                  <h4 className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-tight flex items-center gap-1.5">
+                    ⏱️ {isRTL ? "أجور المهندسين والعمل الفني" : "Engineering Labor Rates"}
+                  </h4>
+                  <p className="text-[10px] text-gray-400 mt-1.5 font-bold">
+                    {isRTL ? "احتساب مستحقات ساعات صيانة ومعايرة الأجهزة وتصاريح التشغيل" : "Calculate specialized maintenance task rates and service labor hours"}
+                  </p>
+                  <button 
+                    onClick={() => toast.success(isRTL ? "تم تحديث واحتساب مستحقات الكادر الفني والهندسي" : "Technician labor rates calculated and logged")}
+                    className="mt-3 w-full bg-white dark:bg-slate-900 hover:bg-primary-50 dark:hover:bg-primary-950 text-primary-600 border border-primary-205 hover:border-primary-300 dark:border-slate-850 py-1.5 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all"
+                  >
+                    {isRTL ? "احتساب أجور الصيانة" : "Calculate Labor Rates"}
+                  </button>
+                </div>
+
+                <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl hover:bg-slate-100/50 dark:hover:bg-slate-900/30 transition border border-transparent hover:border-slate-200 dark:hover:border-slate-800">
+                  <h4 className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-tight flex items-center gap-1.5">
+                    📜 {isRTL ? "إيرادات عقود الصيانة (SLA)" : "Annual SLA Contract Revenues"}
+                  </h4>
+                  <p className="text-[10px] text-gray-400 mt-1.5 font-bold">
+                    {isRTL ? "مراجعة وتسييل عوائد وعقود الصيانة الدورية للأجهزة مع المستشفيات" : "Audit revenues from annual maintenance agreements with external hospitals"}
+                  </p>
+                  <button 
+                    onClick={() => toast.success(isRTL ? "تم جرد ومطابقة ميزانيات عقود الصيانة المبرمة" : "SLA maintenance contract revenue streams audited")}
+                    className="mt-3 w-full bg-white dark:bg-slate-900 hover:bg-primary-50 dark:hover:bg-primary-950 text-primary-600 border border-primary-205 hover:border-primary-300 dark:border-slate-850 py-1.5 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all"
+                  >
+                    {isRTL ? "جرد عقود الصيانة" : "Audit SLA Revenues"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
         {/* Dynamic transaction recording popup block */}
         {financeAddOpen && (
           <motion.div
@@ -26628,13 +27492,18 @@ function App() {
         (userStatusFilter === "Verified" && u.is_verified) ||
         (userStatusFilter === "Pending" && !u.is_verified);
 
-      // 4. Administrative Rank Check - Standard User Level Isolation
-      if (currentUser.role === "Super Admin") {
+      // 4. Institution Boundary Filter
+      const isGlobalAdmin = currentUser.role === "Super Admin";
+      const matchesHospital = isGlobalAdmin || (u.hospitalId === activeHospitalId || u.hospital_id === activeHospitalId);
+
+      // 5. Administrative Rank Check - Standard User Level Isolation
+      if (isGlobalAdmin) {
         return matchesSearch && matchesRole && matchesStatus;
       }
       const currentRank = ROLE_RANK[currentUser.role] || 1;
       const targetRank = ROLE_RANK[u.role] || 1;
       return (
+        matchesHospital &&
         matchesSearch &&
         matchesRole &&
         matchesStatus &&
@@ -28629,6 +29498,24 @@ function App() {
                               placeholder="e.g. Dr. Mazin Al-Tijani"
                               className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 outline-none"
                             />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
+                              {isRTL ? "نوع المؤسسة الطبية" : "Institution / Node Type"}
+                            </label>
+                            <select
+                              name="type"
+                              defaultValue={editingItem?.type || "hospital"}
+                              className="w-full p-2.5 border border-gray-200 dark:border-slate-800 dark:bg-slate-950 rounded-xl focus:ring-2 focus:ring-primary-500 outline-none font-bold text-xs cursor-pointer"
+                            >
+                              <option value="hospital">{isRTL ? "🏥 مستشفى تخصصي" : "🏥 Specialized Hospital"}</option>
+                              <option value="laboratory">{isRTL ? "🔬 معمل تحاليل طبي" : "🔬 Laboratory Hub"}</option>
+                              <option value="pharmacy">{isRTL ? "💊 صيدلية طبية" : "💊 Pharmacy Node"}</option>
+                              <option value="workshop">{isRTL ? "⚙️ ورشة صيانة وأجهزة" : "⚙️ Technical Workshop"}</option>
+                            </select>
                           </div>
                         </div>
 
@@ -36140,9 +37027,25 @@ function App() {
             )}
 
             <div className="mt-8 text-center text-gray-400">
-              <p className="text-[9px] font-bold uppercase tracking-widest">
+              <p className="text-[9px] font-bold uppercase tracking-widest mb-4">
                 {t.protectedBySalamat}
               </p>
+              
+              <div className="mb-4 space-y-1">
+                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                  {isRTL ? "لتسجيل المنشات" : "To Register Organizations"}
+                </p>
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                  {isRTL ? "التواصل مع المبيعات" : "Contact Sales"}
+                </p>
+                <a 
+                  href="mailto:Sales@Jakel.biz"
+                  className="text-xs font-black text-primary-600 hover:text-primary-700 transition-colors"
+                >
+                  Sales@Jakel.biz
+                </a>
+              </div>
+
               <button
                 onClick={toggleLanguage}
                 className="mt-4 text-xs font-black text-primary-600 uppercase tracking-widest hover:underline decoration-2 underline-offset-4 cursor-pointer"
@@ -36992,6 +37895,9 @@ function App() {
                                 setActiveTab("emr");
                                 setEmrViewMode("imaging");
                               }
+                              if (n.id.startsWith("appt-")) setActiveTab("appointments");
+                              if (n.id.startsWith("med-")) setActiveTab("emr"); // Medication tracking is often in EMR
+                              if (n.id.startsWith("msg-")) setActiveTab("telehealth");
                               setShowNotifications(false);
                             }}
                             className={`p-2.5 rounded-xl border transition-all cursor-pointer flex gap-2 relative items-start ${
@@ -37311,34 +38217,38 @@ function App() {
                       {activeTab === "maintenance" && renderMaintenance()}
                       {activeTab === "departments" && renderDepartments()}
                       {activeTab === 'inventory' && (
-                        <PharmacyWorkspace
-                          isRTL={isRTL}
-                          currentUser={currentUser}
-                          apiFetch={apiFetch}
-                          medications={medications}
-                          setMedications={setMedications}
-                          suppliers={suppliers}
-                          setSuppliers={setSuppliers}
-                          pharmacyOrders={pharmacyOrders}
-                          setPharmacyOrders={setPharmacyOrders}
-                          pharmacySales={pharmacySales}
-                          setPharmacySales={setPharmacySales}
-                          externalPharmacies={externalPharmacies}
-                          setExternalPharmacies={setExternalPharmacies}
-                          inventory={inventory}
-                          setInventory={setInventory}
-                          patients={patients}
-                          medicalRecords={medicalRecords}
-                          fetchData={fetchData}
-                          renderStaffPermissionsManager={renderStaffPermissionsManager}
-                          currencySymbol={currencySymbol}
-                          hospitals={hospitals}
-                          users={users}
-                          openModal={openModal}
-                          handleDelete={handleDelete}
-                          hasPermission={hasPermission}
-                          t={t}
-                        />
+                        currentUser?.role?.includes("Pharmacy") || currentUser?.role === "Super Admin" || currentUser?.role === "Hospital Admin" ? (
+                          <PharmacyWorkspace
+                            isRTL={isRTL}
+                            currentUser={currentUser}
+                            apiFetch={apiFetch}
+                            medications={medications}
+                            setMedications={setMedications}
+                            suppliers={suppliers}
+                            setSuppliers={setSuppliers}
+                            pharmacyOrders={pharmacyOrders}
+                            setPharmacyOrders={setPharmacyOrders}
+                            pharmacySales={pharmacySales}
+                            setPharmacySales={setPharmacySales}
+                            externalPharmacies={externalPharmacies}
+                            setExternalPharmacies={setExternalPharmacies}
+                            inventory={inventory}
+                            setInventory={setInventory}
+                            patients={patients}
+                            medicalRecords={medicalRecords}
+                            fetchData={fetchData}
+                            currencySymbol={currencySymbol}
+                            hospitals={hospitals}
+                            users={users}
+                            openModal={openModal}
+                            handleDelete={handleDelete}
+                            hasPermission={hasPermission}
+                            t={t}
+                            renderStaffPermissionsManager={renderStaffPermissionsManager}
+                          />
+                        ) : (
+                          renderInventory()
+                        )
                       )}
                       {activeTab === "emr" && renderEMR()}
                       {activeTab === "laboratory" && renderLaboratoryWorkspace()}
@@ -37346,44 +38256,17 @@ function App() {
                       {activeTab === "users" && renderUsers()}
                       {activeTab === "settings" && renderSettings()}
                       {activeTab === "reports" && renderReports()}
-                      {activeTab === "feedback" && renderFeedback()}
                       {activeTab === "about" && renderAbout()}
                     </>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-32 opacity-70">
-                      <ShieldCheck size={48} className="text-slate-300 mb-6" />
-                      <h2 className="text-xl font-black text-slate-800 uppercase tracking-widest">
-                        {isRTL ? "غير مصرح للوصول" : "Restricted Sector"}
-                      </h2>
-                      <p className="text-sm font-bold text-slate-500 max-w-md text-center mt-2">
-                        {isRTL
-                          ? "تفتقر إلى تصريح الحوكمة أو المستوى الأمني المطلوب للوصول إلى هذه الوحدة"
-                          : "You lack the necessary governance clearance or security credentials to view this workspace."}
-                      </p>
-                    </div>
-                  )}
-      
+                  ) : null}
                 </div>
               </motion.div>
             </AnimatePresence>
           </div>
         </main>
       </div>
-
-      <Toaster position="top-center" />
-      {/* Modals... */}
-      {renderModal()}
-      {renderPwaInstallGuideModal()}
-      {renderHospitalVisitModal()}
-      {renderGlobalSearchModal()}
-      {renderDeleteConfirmModal()}
-      {renderQrScannerModal()}
-      {renderQrPrintModal()}
-      {renderBiometricOverlay()}
-      {renderEMRInspectorModal()}
-      {renderOtaUpdateModal()}
     </div>
   );
-};
+}
 
 export default App;
