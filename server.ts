@@ -16,7 +16,6 @@ import { Server as SocketIOServer } from "socket.io";
 import twilio from "twilio";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import TelegramBot from "node-telegram-bot-api";
 import { v4 as uuidv4 } from "uuid";
 import { GoogleGenAI } from "@google/genai";
 import { initializeApp } from "firebase/app";
@@ -69,89 +68,6 @@ const initTransporter = async () => {
 };
 
 initTransporter();
-
-// Telegram Bot setup
-let telegramBot: TelegramBot | null = null;
-let telegramBotUsername = "";
-
-if (process.env.TELEGRAM_BOT_TOKEN) {
-  try {
-    telegramBot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
-    console.log("Telegram Bot initialized successfully.");
-    
-    telegramBot.getMe().then(me => {
-      telegramBotUsername = me.username || "";
-    });
-    
-    telegramBot.on('message', async (msg) => {
-      const chatId = msg.chat.id;
-      
-      if (msg.text && msg.text.startsWith('/start')) {
-        const parts = msg.text.split(' ');
-        
-        if (parts.length > 1) {
-          // Has payload e.g., /start user_1 or /start patient_5
-          const payload = parts[1];
-          try {
-            if (payload.startsWith('user_')) {
-              const userId = payload.split('_')[1];
-              await db.run("UPDATE users SET telegram_chat_id = ? WHERE id = ?", [chatId.toString(), userId]);
-            } else if (payload.startsWith('patient_')) {
-              const patientId = payload.split('_')[1];
-              await db.run("UPDATE patients SET telegram_chat_id = ? WHERE id = ?", [chatId.toString(), patientId]);
-            }
-            telegramBot?.sendMessage(chatId, `تم ربط حسابك بنجاح! ستصلك التنبيهات هنا.\n\nAccount linked successfully! You will receive notifications here.`);
-          } catch (dbErr) {
-            console.error("Database error linking telegram by payload:", dbErr);
-          }
-        } else {
-          // Normal start
-          telegramBot?.sendMessage(chatId, `أهلاً بك في بوت نظام سلامات! يرجى الضغط على الزر أدناه لمشاركة رقم هاتفك وتفعيل التنبيهات.\n\nWelcome to Salamat HIMS Bot! Please click the button below to share your phone number and activate notifications.`, {
-            reply_markup: {
-              keyboard: [[{ text: "مشاركة رقم الهاتف / Share Phone Number", request_contact: true }]],
-              one_time_keyboard: true,
-              resize_keyboard: true
-            }
-          });
-        }
-      }
-
-      if (msg.contact) {
-        let phoneNumber = msg.contact.phone_number;
-        // Normalize phone number: remove + and leading zeros for better matching if needed, 
-        // but usually just keeping it as is or removing '+' is safest.
-        const normalizedPhone = phoneNumber.replace(/\+/g, '');
-        
-        console.log(`Received contact: ${phoneNumber} for chatId: ${chatId}`);
-        
-        try {
-          // Update users table
-          await db.run("UPDATE users SET telegram_chat_id = ? WHERE phone = ? OR phone = ?", [chatId.toString(), phoneNumber, normalizedPhone]);
-          // Update patients table
-          await db.run("UPDATE patients SET telegram_chat_id = ? WHERE contactNumber = ? OR contactNumber = ?", [chatId.toString(), phoneNumber, normalizedPhone]);
-          
-          telegramBot?.sendMessage(chatId, `تم ربط رقم هاتفك بنجاح! ستصلك التنبيهات هنا.\n\nPhone number linked successfully! You will receive notifications here.`, {
-            reply_markup: { remove_keyboard: true }
-          });
-        } catch (dbErr) {
-          console.error("Database error linking telegram:", dbErr);
-        }
-      }
-    });
-    
-    telegramBot.on('polling_error', (error: any) => {
-      if (error.code === 'ETELEGRAM' && error.message.includes('409 Conflict')) {
-        console.warn("Telegram polling conflict: Another instance is running. Polling will retry.");
-      } else if (error.code === 'EFATAL') {
-        console.warn("Telegram polling EFATAL error (fetch failed). Will ignore/retry.", error.message);
-      } else {
-        console.error("Telegram polling error:", error.message || error);
-      }
-    });
-  } catch (err) {
-    console.error("Failed to initialize Telegram Bot:", err);
-  }
-}
 
 const sendNodeMail = async (to: string, subject: string, html: string) => {
   if (!mailTransporter) {
@@ -1065,7 +981,7 @@ async function runMigrationsAndSeed(targetDb: Database) {
       id TEXT PRIMARY KEY,
       hospital_id TEXT,
       name TEXT,
-      email TEXT UNIQUE,
+      email TEXT,
       password TEXT,
       dob TEXT,
       gender TEXT,
@@ -1086,7 +1002,9 @@ async function runMigrationsAndSeed(targetDb: Database) {
       incomplete_profile INTEGER DEFAULT 0,
       visitType TEXT,
       telegram_chat_id TEXT,
-      FOREIGN KEY(hospital_id) REFERENCES hospitals(id)
+      guardian_id TEXT,
+      FOREIGN KEY(hospital_id) REFERENCES hospitals(id),
+      FOREIGN KEY(guardian_id) REFERENCES patients(id)
     );
     CREATE TABLE IF NOT EXISTS medical_records (
       id TEXT PRIMARY KEY,
@@ -1303,6 +1221,10 @@ async function runMigrationsAndSeed(targetDb: Database) {
     CREATE TABLE IF NOT EXISTS sys_config (
       key TEXT PRIMARY KEY,
       value TEXT
+    );
+    CREATE TABLE IF NOT EXISTS role_permissions (
+      role TEXT PRIMARY KEY,
+      permissions TEXT
     );
     CREATE TABLE IF NOT EXISTS manufacturers (
       id TEXT PRIMARY KEY,
@@ -2545,6 +2467,33 @@ async function runMigrationsAndSeed(targetDb: Database) {
     } catch (repairErr) {
       console.error("Password auto-repair error:", repairErr);
     }
+    
+    // Seed role_permissions if empty
+    try {
+      const roleCount = await db.get("SELECT COUNT(*) as count FROM role_permissions");
+      if (roleCount.count === 0) {
+        const defaultPerms = {
+          "Patient": ["can_view_prescriptions", "can_manage_appointments"],
+          "Requester": ["can_view_prescriptions"],
+          "Staff": ["can_manage_appointments"],
+          "Technician": ["can_manage_maintenance", "can_calibrate_devices"],
+          "Nurse": ["can_perform_triage", "can_view_emr"],
+          "Doctor": ["can_edit_emr", "can_view_emr"],
+          "Lab Technician": ["can_manage_lab", "can_verify_results", "can_manage_reagents"],
+          "Pharmacist": ["can_manage_pharmacy", "can_dispense_meds", "can_manage_inventory"],
+          "Manager": ["can_manage_hr", "can_view_analytics"],
+          "Hospital Admin": ["can_manage_users", "can_edit_settings", "can_manage_finance"],
+          "Admin": ["can_manage_hospitals", "can_audit_logs", "can_export_data"],
+          "Super Admin": ["can_manage_hospitals", "can_audit_logs", "can_export_data", "can_manage_users", "can_edit_settings"]
+        };
+        for (const [role, perms] of Object.entries(defaultPerms)) {
+          await db.run("INSERT INTO role_permissions (role, permissions) VALUES (?, ?)", [role, JSON.stringify(perms)]);
+        }
+        console.log("Role permissions seeded.");
+      }
+    } catch (e) {
+      console.warn("Role permissions seeding error:", e);
+    }
   } catch (err) {
     console.error("Final seeding error:", err);
   }
@@ -3028,6 +2977,7 @@ async function startServer() {
         hospitalVisits,
         externalWorkshops,
         externalRepairTickets,
+        rolePermsRaw,
       ] = await Promise.all([
         db
           .all("SELECT * FROM assets WHERE hospital_id = ?", [hId])
@@ -3046,8 +2996,8 @@ async function startServer() {
           ? Promise.resolve([]) 
           : db
               .all(
-                "SELECT * FROM users WHERE hospital_id = ? OR hospital_id IS NULL",
-                [hId],
+                role === "Super Admin" ? "SELECT * FROM users" : "SELECT * FROM users WHERE hospital_id = ?",
+                role === "Super Admin" ? [] : [hId],
               )
               .then((rows) => {
                 return rows.map((u: any) => {
@@ -3070,7 +3020,7 @@ async function startServer() {
           ? db
               .all("SELECT * FROM patients WHERE id = ?", [userId])
               .catch(() => [])
-          : db.all("SELECT * FROM patients").catch(() => []),
+          : db.all(role === "Super Admin" ? "SELECT * FROM patients" : "SELECT * FROM patients WHERE hospital_id = ?", role === "Super Admin" ? [] : [hId]).catch(() => []),
         isPatient
           ? db
               .all("SELECT * FROM medical_records WHERE patientId = ?", [
@@ -3247,6 +3197,7 @@ async function startServer() {
         db
           .all("SELECT * FROM external_repair_tickets WHERE hospital_id = ?", [hId])
           .catch(() => []),
+        db.all("SELECT * FROM role_permissions").catch(() => []),
       ]);
 
       res.json({
@@ -3280,6 +3231,10 @@ async function startServer() {
         hospitalVisits,
         externalWorkshops,
         externalRepairTickets,
+        rolePermissions: rolePermsRaw.reduce((acc: any, curr: any) => {
+          acc[curr.role] = JSON.parse(curr.permissions);
+          return acc;
+        }, {}),
       });
     } catch (err) {
       console.error("Batch fetch error:", err);
@@ -4527,7 +4482,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/hospitals", async (req: any, res) => {
+  app.post("/api/hospitals", authenticateToken, async (req: any, res) => {
     try {
       if (req.user.role !== "Super Admin") {
         return res
@@ -4586,8 +4541,11 @@ async function startServer() {
     }
   });
 
-  app.put("/api/hospitals/:id", async (req, res) => {
+  app.put("/api/hospitals/:id", authenticateToken, async (req: any, res) => {
     try {
+      if (req.user.role !== "Super Admin") {
+        return res.status(403).json({ error: "Only Super Admins can update hospitals" });
+      }
       const {
         name,
         subscription_plan,
@@ -4641,8 +4599,11 @@ async function startServer() {
     }
   });
 
-  app.put("/api/hospitals/:id/password", async (req, res) => {
+  app.put("/api/hospitals/:id/password", authenticateToken, async (req: any, res) => {
     try {
+      if (req.user.role !== "Super Admin") {
+        return res.status(403).json({ error: "Only Super Admins can update hospital passwords" });
+      }
       const { password } = req.body;
       const hashedPassword = await bcrypt.hash(password, 10);
       await db.run("UPDATE hospitals SET password=? WHERE id=?", [
@@ -4673,8 +4634,11 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/hospitals/:id", async (req, res) => {
+  app.delete("/api/hospitals/:id", authenticateToken, async (req: any, res) => {
     try {
+      if (req.user.role !== "Super Admin") {
+        return res.status(403).json({ error: "Only Super Admins can delete hospitals" });
+      }
       await db.run("DELETE FROM hospitals WHERE id=?", [req.params.id]);
       await db.run("DELETE FROM assets WHERE hospital_id=?", [req.params.id]);
       await db.run("DELETE FROM work_orders WHERE hospital_id=?", [
@@ -4986,41 +4950,6 @@ async function startServer() {
     } catch (e) {
       isRestoringDb = false;
       res.status(500).json({ error: "Failed to trigger restore" });
-    }
-  });
-  app.get("/api/system/telegram-bot", (req, res) => {
-    if (!telegramBot) {
-      return res.status(503).json({ error: "Telegram Bot not configured" });
-    }
-    res.json({ username: telegramBotUsername });
-  });
-  app.post("/api/system/send-telegram", authenticateToken, async (req: any, res) => {
-    try {
-      const { chatId, phone, message } = req.body;
-      if (!telegramBot) {
-        return res.status(503).json({ error: "Telegram Bot not configured" });
-      }
-
-      let targetChatId = chatId;
-
-      if (phone) {
-        // Try to find chatId by phone in users or patients
-        const normalizedPhone = phone.replace(/\+/g, '');
-        const user = await db.get("SELECT telegram_chat_id FROM users WHERE phone = ? OR phone = ?", [phone, normalizedPhone]);
-        const patient = await db.get("SELECT telegram_chat_id FROM patients WHERE contactNumber = ? OR contactNumber = ?", [phone, normalizedPhone]);
-        
-        targetChatId = user?.telegram_chat_id || patient?.telegram_chat_id;
-      }
-
-      if (!targetChatId) {
-        return res.status(404).json({ error: "Telegram Chat ID not found for this user/phone. Please ensure the user has started the bot and shared their contact." });
-      }
-
-      await telegramBot.sendMessage(targetChatId, message);
-      res.json({ success: true });
-    } catch (e: any) {
-      console.error("Telegram send error:", e);
-      res.status(500).json({ error: e.message });
     }
   });
 
@@ -6214,7 +6143,36 @@ async function startServer() {
   });
 
   // Users API
-  app.get("/api/users", async (req, res) => {
+  // Role Permissions Management
+app.get("/api/system/role-permissions", async (req, res) => {
+  try {
+    const roles = await db.all("SELECT * FROM role_permissions");
+    const formatted = roles.reduce((acc: any, curr: any) => {
+      acc[curr.role] = JSON.parse(curr.permissions);
+      return acc;
+    }, {});
+    res.json(formatted);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/system/role-permissions", async (req, res) => {
+  const { role, permissions } = req.body;
+  if (!role || !permissions) return res.status(400).json({ error: "Role and permissions required" });
+  
+  try {
+    await db.run(
+      "INSERT OR REPLACE INTO role_permissions (role, permissions) VALUES (?, ?)",
+      [role, JSON.stringify(permissions)]
+    );
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/users", async (req, res) => {
     try {
       const { hospitalId, role, userId } = req as any;
       let query = "SELECT * FROM users";
@@ -6621,6 +6579,7 @@ async function startServer() {
         insurance_copay_percent,
         insurance_expiry,
         insurance_plan_name,
+        guardian_id,
       } = req.body;
       let hashedPassword = null;
       if (password) {
@@ -6628,7 +6587,7 @@ async function startServer() {
       }
 
       await db.run(
-        "INSERT INTO patients (id, hospital_id, name, dob, gender, bloodType, contactNumber, address, allergies, medicalHistory, national_id, email, password, insurance_provider, insurance_policy_number, insurance_copay_percent, insurance_expiry, insurance_plan_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO patients (id, hospital_id, name, dob, gender, bloodType, contactNumber, address, allergies, medicalHistory, national_id, email, password, insurance_provider, insurance_policy_number, insurance_copay_percent, insurance_expiry, insurance_plan_name, guardian_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
           id,
           (req as any).hospitalId,
@@ -6636,7 +6595,7 @@ async function startServer() {
           dob,
           gender,
           bloodType,
-          contactNumber,
+          contactNumber || null,
           address || null,
           allergies || null,
           medicalHistory || null,
@@ -6650,6 +6609,7 @@ async function startServer() {
             : 100,
           insurance_expiry || null,
           insurance_plan_name || null,
+          guardian_id || null,
         ],
       );
       io.emit("dataChanged");
@@ -6684,6 +6644,7 @@ async function startServer() {
         insurance_expiry,
         insurance_plan_name,
         telegram_chat_id,
+        guardian_id,
       } = req.body;
 
       const copay_pct =
@@ -6694,13 +6655,13 @@ async function startServer() {
       if (password) {
         const hashedPassword = await bcrypt.hash(password, 10);
         await db.run(
-          "UPDATE patients SET name=?, dob=?, gender=?, bloodType=?, contactNumber=?, address=?, allergies=?, medicalHistory=?, national_id=?, email=?, password=?, insurance_provider=?, insurance_policy_number=?, insurance_copay_percent=?, insurance_expiry=?, insurance_plan_name=?, telegram_chat_id=? WHERE id=? AND hospital_id=?",
+          "UPDATE patients SET name=?, dob=?, gender=?, bloodType=?, contactNumber=?, address=?, allergies=?, medicalHistory=?, national_id=?, email=?, password=?, insurance_provider=?, insurance_policy_number=?, insurance_copay_percent=?, insurance_expiry=?, insurance_plan_name=?, telegram_chat_id=?, guardian_id=? WHERE id=? AND hospital_id=?",
           [
             name,
             dob,
             gender,
             bloodType,
-            contactNumber,
+            contactNumber || null,
             address || null,
             allergies || null,
             medicalHistory || null,
@@ -6713,19 +6674,20 @@ async function startServer() {
             insurance_expiry || null,
             insurance_plan_name || null,
             telegram_chat_id || null,
+            guardian_id || null,
             req.params.id,
             (req as any).hospitalId,
           ],
         );
       } else {
         await db.run(
-          "UPDATE patients SET name=?, dob=?, gender=?, bloodType=?, contactNumber=?, address=?, allergies=?, medicalHistory=?, national_id=?, email=?, insurance_provider=?, insurance_policy_number=?, insurance_copay_percent=?, insurance_expiry=?, insurance_plan_name=?, telegram_chat_id=? WHERE id=? AND hospital_id=?",
+          "UPDATE patients SET name=?, dob=?, gender=?, bloodType=?, contactNumber=?, address=?, allergies=?, medicalHistory=?, national_id=?, email=?, insurance_provider=?, insurance_policy_number=?, insurance_copay_percent=?, insurance_expiry=?, insurance_plan_name=?, telegram_chat_id=?, guardian_id=? WHERE id=? AND hospital_id=?",
           [
             name,
             dob,
             gender,
             bloodType,
-            contactNumber,
+            contactNumber || null,
             address || null,
             allergies || null,
             medicalHistory || null,
@@ -6737,6 +6699,7 @@ async function startServer() {
             insurance_expiry || null,
             insurance_plan_name || null,
             telegram_chat_id || null,
+            guardian_id || null,
             req.params.id,
             (req as any).hospitalId,
           ],
@@ -7125,8 +7088,13 @@ async function startServer() {
     }
   });
 
-  app.post("/api/external-pharmacies", async (req, res) => {
+  app.post("/api/external-pharmacies", authenticateToken, async (req: any, res) => {
     try {
+      if (req.user.role !== "Super Admin") {
+        return res
+          .status(403)
+          .json({ error: "Only Super Admins can create pharmacies" });
+      }
       const {
         id,
         name,
@@ -7191,8 +7159,11 @@ async function startServer() {
     }
   });
 
-  app.put("/api/external-pharmacies/:id", async (req, res) => {
+  app.put("/api/external-pharmacies/:id", authenticateToken, async (req: any, res) => {
     try {
+      if (req.user.role !== "Super Admin") {
+        return res.status(403).json({ error: "Only Super Admins can update pharmacies" });
+      }
       const {
         name,
         type,
@@ -7237,8 +7208,11 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/external-pharmacies/:id", async (req, res) => {
+  app.delete("/api/external-pharmacies/:id", authenticateToken, async (req: any, res) => {
     try {
+      if (req.user.role !== "Super Admin") {
+        return res.status(403).json({ error: "Only Super Admins can delete pharmacies" });
+      }
       const hospId = (req as any).hospitalId || "global";
       await db.run("DELETE FROM external_pharmacies WHERE id=?", [
         req.params.id,
@@ -7272,8 +7246,13 @@ async function startServer() {
     }
   });
 
-  app.post("/api/external-labs", async (req, res) => {
+  app.post("/api/external-labs", authenticateToken, async (req: any, res) => {
     try {
+      if (req.user.role !== "Super Admin") {
+        return res
+          .status(403)
+          .json({ error: "Only Super Admins can create labs" });
+      }
       const {
         id,
         name,
@@ -7338,8 +7317,11 @@ async function startServer() {
     }
   });
 
-  app.put("/api/external-labs/:id", async (req, res) => {
+  app.put("/api/external-labs/:id", authenticateToken, async (req: any, res) => {
     try {
+      if (req.user.role !== "Super Admin") {
+        return res.status(403).json({ error: "Only Super Admins can update labs" });
+      }
       const {
         name,
         specialization,
@@ -7384,8 +7366,11 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/external-labs/:id", async (req, res) => {
+  app.delete("/api/external-labs/:id", authenticateToken, async (req: any, res) => {
     try {
+      if (req.user.role !== "Super Admin") {
+        return res.status(403).json({ error: "Only Super Admins can delete labs" });
+      }
       const hospId = (req as any).hospitalId || "global";
       await db.run("DELETE FROM external_labs WHERE id=?", [req.params.id]);
       await logAudit(
@@ -8198,6 +8183,18 @@ async function startServer() {
       ]);
       if (!targetUser) return res.status(404).json({ error: "User not found" });
 
+      if (currentUser.role !== "Super Admin") {
+        if (targetUser.role === "Patient") {
+          return res.status(403).json({ error: "Only Super Admins can edit patient accounts" });
+        }
+        if (targetUser.hospital_id && targetUser.hospital_id !== currentUser.hospitalId) {
+          return res.status(403).json({ error: "Cannot edit user from another node" });
+        }
+        if (targetUser.role === "Super Admin") {
+          return res.status(403).json({ error: "Cannot edit a Super Admin" });
+        }
+      }
+
       // Build update fields
       const updates: string[] = [];
       const params: any[] = [];
@@ -8498,6 +8495,9 @@ async function startServer() {
           "Manager",
         ].includes(currentUser.role)
       ) {
+        if (targetUser.role === "Patient") {
+          return res.status(403).json({ error: "Only Super Admins can delete patient accounts" });
+        }
         if (targetUser.hospital_id !== currentUser.hospitalId) {
           return res
             .status(403)

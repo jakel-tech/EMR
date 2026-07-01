@@ -1,30 +1,84 @@
-2141:    if (activeTab === "nursesStation" && isLoggedIn) {
-2569:    if (currentUser.role === "Super Admin" && activeTab === "hospitals") {
-2596:    if (isLoggedIn && (activeTab === "feedback" || currentUser?.role === "Super Admin")) {
-2771:    if (isLoggedIn && currentUser?.role === "Super Admin" && activeTab === "settings") {
-9055:    if (activeTab === "externalLabs" && externalLabs.length > 0) {
-37361:            const isActive = activeTab === item.id;
-38081:                    activeTab === "dashboard"
-38085:                      : activeTab === "users"
-38089:                        : activeTab === "emr"
-38101:                    activeTab === "users"
-38109:                      : activeTab === "hospitals"
-38119:                        : activeTab === "emr"
-38135:                      {activeTab === "dashboard" && renderDashboard()}
-38136:                      {activeTab === "governance" &&
-38138:                      {activeTab === "analytics" && renderAnalytics()}
-38139:                      {activeTab === "workshop" && renderWorkshop()}
-38140:                      {activeTab === "nursesStation" && (
-38156:                      {activeTab === "organizations" && renderHospitals()}
-38157:                      {activeTab === "telehealth" && renderTelehealthChat()}
-38158:                      {activeTab === "appointments" && renderAppointments()}
-38159:                      {activeTab === "finance" && renderFinanceWithBilling()}
-38160:                      {activeTab === "hr" && renderHrWithShifts()}
-38161:                      {activeTab === "maintenance" && renderMaintenance()}
-38162:                      {activeTab === "departments" && renderDepartments()}
-38163:                      {activeTab === 'inventory' && (
-38193:                      {activeTab === "emr" && renderEMR()}
-38194:                      {activeTab === "laboratory" && renderLaboratoryWorkspace()}
-38195:                      {activeTab === "imaging" && renderImagingSection()}
-38196:                      {activeTab === "users" && renderUsers()}
-38197:                      {activeTab === "sett
+802:    const salesCols = await db.all("PRAGMA table_info(pharmacy_sales)");
+818:    const tableInfo = await db.all("PRAGMA table_info(inventory)");
+826:    const tableInfo = await db.all("PRAGMA table_info(users)");
+834:    const tableInfo = await db.all("PRAGMA table_info(external_pharmacies)");
+842:    const tableInfo = await db.all("PRAGMA table_info(external_labs)");
+850:    const tableInfo = await db.all("PRAGMA table_info(external_workshops)");
+858:    const tableInfo = await db.all("PRAGMA table_info(patients)");
+2425:        const standardAssets = await db.all(
+2499:      const emptyUsers = await db.all(
+2514:      const emptyPatients = await db.all(
+2531:      const emptyHospitals = await db.all(
+2566:      const assets = await db.all(
+2772:        const rows = await db.all(query, params);
+2927:        db.all("SELECT * FROM assets WHERE hospital_id = ?", [hId]),
+2928:        db.all("SELECT * FROM manufacturers"),
+2929:        db.all("SELECT * FROM work_orders WHERE hospital_id = ?", [hId]),
+2930:        db.all("SELECT * FROM maintenance WHERE hospital_id = ?", [hId]),
+2931:        db.all("SELECT * FROM inventory WHERE hospital_id = ?", [hId]),
+2932:        db.all("SELECT * FROM users WHERE hospital_id = ?", [hId]),
+2933:        db.all("SELECT * FROM hospitals WHERE id = ?", [hId]),
+2934:        db.all("SELECT * FROM patients WHERE hospital_id = ?", [hId]),
+2935:        db.all("SELECT * FROM medical_records WHERE hospital_id = ?", [hId]),
+2936:        db.all("SELECT * FROM medications WHERE hospital_id = ?", [hId]),
+2937:        db.all("SELECT * FROM examinations WHERE hospital_id = ?", [hId]),
+2938:        db.all("SELECT * FROM departments WHERE hospital_id = ?", [hId]),
+2939:        db.all("SELECT * FROM appointments WHERE hospital_id = ?", [hId]),
+2940:        db.all("SELECT * FROM billing WHERE hospital_id = ?", [hId]),
+2941:        db.all("SELECT * FROM finance_transactions WHERE hospital_id = ?", [
+2944:        db.all("SELECT * FROM scan_logs WHERE hospital_id = ?", [hId]),
+2945:        db.all("SELECT * FROM staff_shifts WHERE hospital_id = ?", [hId]),
+2946:        db.all("SELECT * FROM staff_tasks WHERE hospital_id = ?", [hId]),
+2947:        db.all("SELECT * FROM suppliers WHERE hospital_id = ?", [hId]),
+2948:        db.all("SELECT * FROM medication_schedules WHERE hospital_id = ?", [
+2951:        db.all("SELECT * FROM pharmacy_orders WHERE hospital_id = ?", [hId]),
+2952:        db.all("SELECT * FROM audit_logs WHERE hospital_id = ?", [hId]),
+2953:        db.all("SELECT * FROM imaging_orders WHERE hospital_id = ?", [hId]),
+2954:        db.all("SELECT * FROM acquired_scans WHERE hospital_id = ?", [hId]),
+3035:        db.all("SELECT * FROM manufacturers").catch(() => []),
+3068:        db.all("SELECT * FROM hospitals").catch(() => []),
+3073:          : db.all("SELECT * FROM patients").catch(() => []),
+4518:      const rows = await db.all("SELECT * FROM hospitals");
+4700:      let departments = await db.all(
+4770:        departments = await db.all(
+5089:      const dbRes = await db.all(
+5352:      const assets = await db.all(
+5477:      const manufacturers = await db.all(
+5539:      const logs = await db.all(
+5585:      const shifts = await db.all(
+5674:      const tasks = await db.all(
+5763:      const wos = await db.all(
+5863:      const workshops = await db.all(
+5958:      const tickets = await db.all(
+6065:      const maint = await db.all(
+6122:      const inv = await db.all(
+6236:      const rows = await db.all(query, params);
+6279:      const rows = await db.all(query, params);
+6309:      const rows = await db.all(query, params);
+6364:      const appointments = await db.all(query, params);
+6448:      const billing = await db.all(query, params);
+6817:      const records = await db.all(query, params);
+6929:      const records = await db.all(
+7062:      const records = await db.all(
+7118:      const records = await db.all(
+7265:      const records = await db.all(
+7416:      const records = await db.all(query, params);
+7514:      const records = await db.all(
+7621:      const records = await db.all(
+7711:      const records = await db.all(
+7730:      const records = await db.all(query, params);
+7953:        users = await db.all("SELECT * FROM users");
+7955:        users = await db.all("SELECT * FROM users WHERE hospital_id = ?", [
+8289:      const rows = await db.all(query, params);
+8388:        const tableInfo = await db.all(`PRAGMA table_info(${tableName})`);
+8658:      const workOrders = await db.all(
+8662:      const assets = await db.all(
+8742:      const transactions = await db.all(
+8755:      const transactions = await db.all(
+8759:      const billing = await db.all(
+8763:      const sales = await db.all(
+8767:      const hr = await db.all(
+8847:      const staff = await db.all("SELECT * FROM users WHERE hospital_id = ?", [
+8929:      const devices = await db.all(
+9070:      const orders = await db.all(query, params);
+9216:      const scans = await db.all(query, params);

@@ -1,26 +1,27 @@
-# Security Specification - Firebase Fortress Rules
+# Firestore Security Specification
 
-## 1. Data Invariants
-- **Hospital Isolation**: A backup record under `/hospitals/{hospitalId}/backups/{backupId}` must only be read or written if the requesting user belongs to `hospitalId`.
-- **Identity Integrity**: The user creating a backup log record must be authenticated, utilizing a verified email addresses.
-- **Size Bounds**: String fields (like `id`, `fileName`, `fileId`) must have explicit size limits to prevent Denial of Wallet.
-- **Temporal Integrity**: `createdAt` must match the server's time on creation.
+## Data Invariants
+1. A hospital backup must have a valid `hospitalId` matching the parent path.
+2. Database chunks must have a valid `timestamp` and `totalChunks`.
+3. Linked accounts are system-level and only manageable by authorized admins or the server itself.
+4. Users can only access their own `dbBackup` and `backups` in their personal path.
 
-## 2. The Great "Dirty Dozen" (Test Payloads)
-The following malformed or unauthorized collections of inputs are designed to attempt identity spoofing, state shortcuts, and resource poisoning, but must fail with `PERMISSION_DENIED`:
+## The "Dirty Dozen" Payloads
+1. **Unauthorized Global Sync Hijack**: Attacker tries to write to `/dbBackup/chunk_0` without auth.
+2. **Hospital Data Leak**: User A tries to read `/hospitals/hospital_B/assets/asset_1`.
+3. **Ghost Field Injection**: User tries to add `isAdmin: true` to a backup record.
+4. **ID Poisoning**: Attacker uses a 2KB string as a `chunkId`.
+5. **Timestamp Spoofing**: Attacker sets a future `createdAt` date on a backup.
+6. **Orphaned Chunk**: Attacker writes a chunk with `totalChunks: 9999` to consume storage.
+7. **Linked Account Exposure**: Unauthorized user tries to read `/system/linkedAccounts`.
+8. **Cross-User Backup Access**: User A tries to read `/users/userB@gmail.com/backups/backup1`.
+9. **Resource Exhaustion**: Attacker tries to write a 2MB string to a field (Firestore limit is 1MB, but rules should restrict smaller).
+10. **State Shortcut**: Attacker tries to set backup status to 'success' before it's actually finished (if logic allows).
+11. **Manufacturer Modification**: Non-admin user tries to delete a manufacturer.
+12. **Missing Master Gate**: User tries to read subcollection data without having access to the parent document.
 
-1. **Anonymous / Unauthenticated Create**: Writing back to `hospitals/h1/backups/b1` without headers/authentication.
-2. **Unverified Email Sync**: Creating a backup record with `email_verified == false` on the JWT token.
-3. **Cross-Hospital Leak**: Accessing `hospitals/h2/backups/b1` while authenticated under `hospitalId == h1`.
-4. **Spoofed Operator Email**: Setting `createdBy` field to `admin@hospital.com` when authenticated token email is `malicious@hacker.io`.
-5. **No Schema Keys**: Writing an empty fields map `{}` to a backup object during create.
-6. **Superfluous Keys (Shadow Field injection)**: Attempting to insert `isAdmin: true` or `unsafeField: "bypass"` inside the Backup payload.
-7. **Junk Character Document ID**: Attempting to initialize a collection document where `backupId` contains 1.5MB of base64 random symbols or paths.
-8. **Malicious File Size Value**: Setting the `size` field to negative numbers (e.g., `-100`) or string datatype values.
-9. **Manipulated Client Times**: Submitting a pre-generated client-time value instead of `request.time`.
-10. **Immutable Value Modification**: Attempting an update that alters the immutable `fileId` or `hospitalId` fields.
-11. **Spoofed Sibling exists() Bypass**: Injecting an arbitrary `hospitalId` lookup during create that does not match any valid known hospital document path.
-12. **Blanket Query Scraping**: Attempting a list request against the nested backup collection without filtering the query by the hospital.
-
-## 3. Test Runner Definition (`firestore.rules.test.ts`)
-We will assert that all payloads above yield immediate Permission Denied. Since this is an intermediate spec, this guide ensures absolute consistency.
+## Test Runner (firestore.rules.test.ts)
+```typescript
+// This is a representative test file for the security assertions.
+// In a real environment, you would use @firebase/rules-unit-testing.
+```

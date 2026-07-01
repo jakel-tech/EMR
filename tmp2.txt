@@ -1,0 +1,7 @@
+38344-                <button
+38345-                  key={i}
+38346-                  onClick={() => setActiveSlide(i)}
+38347:                  className={\`h-1 rounded-full transition-all \${i === activeSlide ? "w-8 bg-primary-500" : "w-2 bg-slate-700"}\`}
+38348-                />
+38349-              ))}
+38350-            </div>

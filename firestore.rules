@@ -2,24 +2,66 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isValidId(id) {
-       return id is string && id.size() > 0 && id.size() <= 64 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    // Default deny
+    // 1. Master Deny
     match /{document=**} {
       allow read, write: if false;
     }
 
+    // 2. Global Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-\\.]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // 3. Entity Validators
+    function isValidManufacturer(data) {
+      return data.keys().hasAll(['id', 'name']) && 
+             data.id is string && data.id.size() <= 100 &&
+             data.name is string && data.name.size() <= 200;
+    }
+
+    function isValidAsset(data) {
+      return data.keys().hasAll(['id', 'name', 'category', 'status', 'location']) &&
+             data.id is string && data.id.size() <= 100 &&
+             data.name is string && data.name.size() <= 200 &&
+             data.category is string &&
+             data.status is string;
+    }
+
+    function isValidBackup(data) {
+      return data.keys().hasAll(['id', 'hospitalId', 'fileId', 'fileName', 'size', 'status']) &&
+             data.id is string && data.hospitalId is string &&
+             data.fileId is string && data.fileName is string &&
+             data.size is int && data.status is string;
+    }
+
+    function isValidDbChunk(data) {
+      return data.keys().hasAll(['data', 'totalChunks', 'timestamp']) &&
+             data.data is string && data.data.size() <= 1048576 &&
+             data.totalChunks is int && data.timestamp is int;
+    }
+
+    // 4. Resource Rules
+
     // Manufacturers
     match /manufacturers/{mId} {
       allow read: if isSignedIn();
-      allow write: if false;
+      allow write: if false; 
     }
 
     // Hospitals
@@ -29,21 +71,44 @@ service cloud.firestore {
       // Assets
       match /assets/{assetId} {
         allow read: if isSignedIn();
-        allow write: if isSignedIn(); // Simplified for now as per blueprint scope
+        allow write: if isSignedIn() && isValidAsset(incoming());
       }
 
       // Backups
       match /backups/{backupId} {
         allow read: if isSignedIn();
-        allow create: if isSignedIn() && isValidId(hospitalId) && isValidId(backupId);
-        allow delete: if isSignedIn();
+        allow create: if isSignedIn() && isValidBackup(incoming()) && incoming().hospitalId == hospitalId;
+        allow delete: if isSignedIn(); 
+      }
+    }
+
+    // Users (Personal Data)
+    match /users/{userId} {
+      function isOwner() {
+        return isSignedIn() && (request.auth.uid == userId || request.auth.token.email == userId);
+      }
+      
+      allow read: if isOwner();
+
+      match /backups/{backupId} {
+        allow read, write: if isOwner() && isValidBackup(incoming());
+      }
+
+      match /dbBackup/{chunkId} {
+        allow read, write: if isOwner() && isValidDbChunk(incoming());
       }
     }
 
     // Global Sync DB
     match /dbBackup/{chunkId} {
-      allow read: if true;
-      allow write: if isValidId(chunkId);
+      allow read: if true; 
+      allow write: if isValidDbChunk(incoming()) && isValidId(chunkId);
+    }
+
+    // System config
+    match /system/linkedAccounts {
+      allow read: if true; 
+      allow write: if false; 
     }
   }
 }

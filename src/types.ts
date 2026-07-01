@@ -219,6 +219,7 @@ export type Patient = {
   id: string;
   nationalId?: string;
   name: string;
+  email?: string; // Added for account management
   dob: string;
   gender: PatientGender;
   bloodType: string;

@@ -41,45 +41,32 @@
       "required": ["id", "name", "category", "status", "location"]
     },
     "Backup": {
-      "title": "Google Drive Backup Record",
-      "description": "Metadata regarding a system backup exported to Google Drive.",
+      "title": "System Backup Record",
+      "description": "Metadata regarding a system backup exported to Google Drive or internal storage.",
       "type": "object",
       "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique backup transaction identifier."
-        },
-        "hospitalId": {
-          "type": "string",
-          "description": "The associated hospital workspace."
-        },
-        "fileId": {
-          "type": "string",
-          "description": "The Google Drive file ID."
-        },
-        "fileName": {
-          "type": "string",
-          "description": "Google Drive physical file name."
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server creation timestamp if stored."
-        },
-        "createdBy": {
-          "type": "string",
-          "description": "The authenticated operator email."
-        },
-        "size": {
-          "type": "integer",
-          "description": "Metadata backup size."
-        },
-        "status": {
-          "type": "string",
-          "description": "Sync execution final state."
-        }
+        "id": { "type": "string" },
+        "hospitalId": { "type": "string" },
+        "fileId": { "type": "string" },
+        "fileName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string" },
+        "size": { "type": "integer" },
+        "status": { "type": "string" }
       },
       "required": ["id", "hospitalId", "fileId", "fileName", "createdAt", "size", "status"]
+    },
+    "DbChunk": {
+      "title": "Database Binary Chunk",
+      "description": "A base64 encoded chunk of the SQLite database file.",
+      "type": "object",
+      "properties": {
+        "data": { "type": "string" },
+        "totalChunks": { "type": "integer" },
+        "timestamp": { "type": "integer" },
+        "compressed": { "type": "boolean" }
+      },
+      "required": ["data", "totalChunks", "timestamp"]
     }
   },
   "firestore": {
@@ -93,7 +80,23 @@
     },
     "/hospitals/{hospitalId}/backups/{backupId}": {
       "schema": "Backup",
-      "description": "Unified database log records of Google Drive backups for each hospital isolate."
+      "description": "Unified database log records of backups for each hospital isolate."
+    },
+    "/users/{userId}/backups/{backupId}": {
+      "schema": "Backup",
+      "description": "Personal backup records for specific users."
+    },
+    "/users/{userId}/dbBackup/{chunkId}": {
+      "schema": "DbChunk",
+      "description": "User-specific database backup chunks."
+    },
+    "/dbBackup/{chunkId}": {
+      "schema": "DbChunk",
+      "description": "Global system-wide database backup chunks for shared workspaces."
+    },
+    "/system/linkedAccounts": {
+      "schema": "object",
+      "description": "System-wide configuration for linked user accounts."
     }
   }
 }

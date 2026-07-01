@@ -72,6 +72,7 @@ import {
   Zap,
   Mail,
   PhoneCall,
+  Server,
   Smartphone,
   Monitor,
   Share2,
@@ -199,6 +200,13 @@ import SmartSearchPicker from "./components/SmartSearchPicker";
 import CategoryPicker from "./components/CategoryPicker";
 import ImagePicker from "./components/ImagePicker";
 import NursesStationView from "./components/NursesStationView";
+import AccountsManager from "./components/AccountsManager";
+import { 
+  ROLE_RANK, 
+  BASE_PERMISSIONS, 
+  getInheritedPermissions,
+  PermissionId
+} from "./lib/permissions";
 import ExternalWorkshops from "./components/ExternalWorkshops";
 import PharmacyWorkspace from "./components/PharmacyWorkspace";
 import { COMMON_MANUFACTURERS } from "./data/manufacturers";
@@ -532,7 +540,16 @@ function App() {
     | "nursesStation"
     | "laboratory"
     | "imaging"
+    | "about"
+    | "telehealth"
+    | "feedback"
+    | "organizations"
   >("dashboard");
+
+  const handleNavigate = (tab: string, viewTab?: string) => {
+    setActiveTab(tab as any);
+    // Add logic for sub-tabs if necessary
+  };
   const [pharmacySelectedMedId, setPharmacySelectedMedId] = useState<
     string | null
   >(null);
@@ -552,6 +569,8 @@ function App() {
   const [modalHospitalLogo, setModalHospitalLogo] = useState<string>("");
   const [modalManufacturerLogo, setModalManufacturerLogo] = useState<string>("");
   const [modalAvatar, setModalAvatar] = useState<string>("");
+  const [modalIsChild, setModalIsChild] = useState(false);
+  const [modalGuardianId, setModalGuardianId] = useState("");
   const [isCustomPermsActive, setIsCustomPermsActive] = useState(false);
 
   useEffect(() => {
@@ -1894,6 +1913,17 @@ function App() {
     };
   });
 
+  const [activePatientId, setActivePatientId] = useState<string>(() => {
+    const saved = localStorage.getItem("currentUser");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return parsed?.id || "";
+      } catch (e) {}
+    }
+    return "";
+  });
+
   useEffect(() => {
     localStorage.setItem("linkedFirebaseAccounts", JSON.stringify(linkedFirebaseAccounts));
     
@@ -1941,7 +1971,6 @@ function App() {
   const [profileSpecialty, setProfileSpecialty] = useState<string>("");
   const [profileStatus, setProfileStatus] = useState<string>("");
   const [profileSignature, setProfileSignature] = useState<string>("");
-  const [profileTelegramId, setProfileTelegramId] = useState<string>("");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   useEffect(() => {
@@ -1951,7 +1980,6 @@ function App() {
       setProfileSpecialty(currentUser.specialty || "");
       setProfileStatus(currentUser.status_message || "Available");
       setProfileSignature(currentUser.signature || "");
-      setProfileTelegramId(currentUser.telegram_chat_id || "");
     }
   }, [currentUser]);
 
@@ -2266,6 +2294,7 @@ function App() {
 
   // Nurses Station States
   const [nursesStations, setNursesStations] = useState<NursesStation[]>([]);
+  const [nursesTasks, setNursesTasks] = useState<StaffTask[]>([]);
   const [stationDevices, setStationDevices] = useState<NurseStationDevice[]>([]);
   const [selectedStationId, setSelectedStationId] = useState<string>("ns1");
   const [isLoadingStations, setIsLoadingStations] = useState(false);
@@ -2383,6 +2412,7 @@ function App() {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [isGovernanceOpen, setIsGovernanceOpen] = useState(false);
   const [deviceVitalsStream, setDeviceVitalsStream] = useState<any>(null);
+  const [basePermissions, setBasePermissions] = useState<Record<string, PermissionId[]>>(BASE_PERMISSIONS);
 
   const [patientRecordSearch, setPatientRecordSearch] = useState("");
   const [patientRecordTab, setPatientRecordTab] = useState("all");
@@ -3171,7 +3201,7 @@ function App() {
 
   const [hospitals, setHospitals] = useState<Hospital[]>([]);
   const [hospitalsViewTab, setHospitalsViewTab] = useState<
-    "hospitals" | "pharmacies" | "laboratories" | "settings" | "externalWorkshops"
+    "hospitals" | "pharmacies" | "laboratories" | "settings" | "externalWorkshops" | "accounts"
   >("hospitals");
 
   const [extName, setExtName] = useState("");
@@ -3282,6 +3312,7 @@ function App() {
           setImagingOrders(data.imagingOrdersData || []);
           setAcquiredScans(data.acquiredScansData || []);
           setHospitalVisits(data.hospitalVisitsData || []);
+          if (data.rolePermissionsData) setBasePermissions(data.rolePermissionsData);
           setIsLoading(false); // Immediate transition
           isBackground = true; // Downgrade the following fetch to background
         } catch (e) {}
@@ -3374,6 +3405,7 @@ function App() {
         hospitalVisitsData: hvData,
         externalWorkshopsData,
         externalRepairTicketsData,
+        rolePermissionsData: data.rolePermissions,
       };
       localStorage.setItem("offline_cache_data", JSON.stringify(cache));
 
@@ -3388,13 +3420,13 @@ function App() {
       setMedicalRecords(medRecordsData || []);
       setMedications(medicationsData || []);
       setExaminations(examinationsData || []);
-      setDepartments(departmentsData || []);
-      setAppointments(appointmentsData || []);
-      setBilling(billingData || []);
-      setFinanceTransactions(financeData || []);
-      setStaffShifts(shiftsData || []);
-      setStaffTasks(tasksData || []);
-      setScanLogs(scanLogsData || []);
+      setDepartments(departmentsData);
+      setAppointments(appointmentsData);
+      setBilling(billingData);
+      setFinanceTransactions(financeData);
+      setStaffShifts(shiftsData);
+      setStaffTasks(tasksData);
+      setScanLogs(scanLogsData);
       setAnalytics(analyticsData);
       setSuppliers(suppliersData || []);
       setMedicationSchedules(medicationSchedulesData || []);
@@ -3407,6 +3439,7 @@ function App() {
       setAuditLogs(auditLogsData || []);
       setImagingOrders(imagingOrdersData || []);
       setAcquiredScans(acquiredScansData || []);
+      if (data.rolePermissions) setBasePermissions(data.rolePermissions);
 
       setCurrentUser((prev) => {
         const storedUserId = localStorage.getItem("currentUserId");
@@ -3784,21 +3817,6 @@ function App() {
     setLang(lang === "en" ? "ar" : "en");
   };
 
-  const ROLE_RANK: Record<string, number> = {
-    "Super Admin": 5,
-    Admin: 4,
-    "Hospital Admin": 4,
-    "Pharmacy Admin": 4,
-    "Laboratory Admin": 4,
-    Manager: 3,
-    Doctor: 2,
-    Pharmacist: 2,
-    "Lab Technician": 2,
-    Technician: 1,
-    Requester: 1,
-    Patient: 0,
-  };
-
   const getDefaultPermissionsForRole = (
     role: string,
   ): Record<string, Record<string, boolean>> => {
@@ -3948,6 +3966,8 @@ function App() {
     setModalHospitalLogo(type === "hospital" ? (item?.logo_url || "") : "");
     setModalManufacturerLogo(type === "manufacturer" ? (item?.logo_url || "") : "");
     setModalAvatar(item?.avatar || "");
+    setModalIsChild(!!item?.guardian_id);
+    setModalGuardianId(item?.guardian_id || "");
     setIsModalOpen(true);
     if (type === "medicalRecord") {
       if (item?.images) {
@@ -4323,10 +4343,18 @@ function App() {
       }
     }
 
-    if (customPerms && customPerms[s]) {
-      const secPerms = customPerms[s];
-      if (typeof secPerms[action] === "boolean") {
-        return secPerms[action];
+    if (customPerms) {
+      if (customPerms[s] && typeof customPerms[s] === "object") {
+        const secPerms = customPerms[s];
+        if (typeof secPerms[action] === "boolean") {
+          return secPerms[action];
+        }
+      }
+      if (typeof customPerms[s] === "boolean") {
+        return customPerms[s];
+      }
+      if (typeof customPerms[`${action}_${s}`] === "boolean") {
+        return customPerms[`${action}_${s}`];
       }
     }
 
@@ -4338,9 +4366,12 @@ function App() {
       s === "dashboard" ||
       s === "settings" ||
       s === "about" ||
-      s === "shifts"
-    )
+      s === "shifts" ||
+      s === "departments"
+    ) {
+      if (s === "departments" && currentUser.role === "Patient") return false;
       return true;
+    }
 
     if (currentUser.role === "Manager" && s !== "users") return true;
 
@@ -4589,7 +4620,6 @@ function App() {
         specialty: profileSpecialty,
         status_message: profileStatus,
         signature: profileSignature,
-        telegram_chat_id: profileTelegramId,
       };
 
       if (typeof payload.permissions === "string") {
@@ -4598,7 +4628,12 @@ function App() {
         } catch (e) {}
       }
 
-      const res = await apiFetch(`/api/users/${currentUser.id}`, {
+      const isPatient = currentUser.type === "patient" || currentUser.role === "Patient";
+      const endpoint = isPatient 
+        ? `/api/patients/${currentUser.id}`
+        : `/api/users/${currentUser.id}`;
+
+      const res = await apiFetch(endpoint, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -4608,9 +4643,16 @@ function App() {
 
       setCurrentUser(payload as any);
       localStorage.setItem("currentUser", JSON.stringify(payload));
-      setUsers((prev) =>
-        prev.map((u) => (u.id === currentUser.id ? (payload as any) : u)),
-      );
+      
+      if (isPatient) {
+        setPatients((prev) =>
+          prev.map((p) => (p.id === currentUser.id ? (payload as any) : p)),
+        );
+      } else {
+        setUsers((prev) =>
+          prev.map((u) => (u.id === currentUser.id ? (payload as any) : u)),
+        );
+      }
 
       toast.success(
         isRTL
@@ -4900,6 +4942,7 @@ function App() {
       payload.insurance_provider = sudaneseProvider;
       payload.insurance_plan_name = `${sudaneseTier}|${sudaneseConsultPay}|${sudaneseLabPay}|${sudanesePharmPay}|${sudaneseImagPay}|${sudaneseSurgPay}`;
       payload.insurance_copay_percent = Math.round((sudaneseConsultPay + sudaneseLabPay + sudanesePharmPay + sudaneseImagPay + sudaneseSurgPay) / 5);
+      payload.guardian_id = modalIsChild ? modalGuardianId : null;
     }
 
     // Add is_verified and permissions to user payload
@@ -14929,36 +14972,6 @@ function App() {
 
                 <div>
                   <label className="block text-xs font-black text-gray-700 uppercase tracking-widest mb-1">
-                    {isRTL
-                      ? "معرف تليغرام (Chat ID)"
-                      : "Telegram Chat ID"}
-                  </label>
-                  <div className="relative">
-                    <Send
-                      size={16}
-                      className="absolute left-3.5 top-3.5 text-blue-500"
-                    />
-                    <input
-                      type="text"
-                      value={profileTelegramId}
-                      onChange={(e) => setProfileTelegramId(e.target.value)}
-                      placeholder={
-                        isRTL
-                          ? "مثال: 123456789"
-                          : "e.g. 123456789"
-                      }
-                      className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium"
-                    />
-                  </div>
-                  <p className="text-[9px] text-gray-400 mt-1">
-                    {isRTL 
-                      ? "أرسل /start إلى بوت تليغرام للحصول على المعرف الخاص بك." 
-                      : "Send /start to our Telegram bot to get your Chat ID."}
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black text-gray-700 uppercase tracking-widest mb-1">
                     {isRTL ? "صورة الملف الشخصي" : "Upload Custom Photo"}
                   </label>
                   <label className="flex items-center gap-2 border border-dashed border-gray-200 hover:border-primary-400 hover:bg-primary-50 px-3 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:text-primary-600 cursor-pointer transition-all">
@@ -15733,7 +15746,7 @@ function App() {
     return (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pb-24 h-[650px]">
         {/* Contacts column */}
-        <div className="lg:col-span-4 bg-slate-50 dark:bg-slate-950 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 p-5 flex flex-col shadow-inner overflow-hidden">
+        <div className="lg:col-span-3 bg-slate-50 dark:bg-slate-950 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 p-5 flex flex-col shadow-inner overflow-hidden">
           <div className="mb-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <div>
               <h3 className="text-sm font-black text-slate-800 dark:text-slate-100 uppercase tracking-tight flex items-center gap-1.5">
@@ -15824,7 +15837,7 @@ function App() {
         </div>
         
         {/* Chat message panel */}
-        <div className="lg:col-span-8 bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 p-6 flex flex-col shadow-sm overflow-hidden relative">
+        <div className="lg:col-span-6 bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 p-6 flex flex-col shadow-sm overflow-hidden relative">
           {activeChatPart ? (
             <>
               {/* Header */}
@@ -16026,13 +16039,100 @@ function App() {
             </div>
           )}
         </div>
+
+        {/* Vitals Telemetry Column (المؤشرات الحيوية المقاسة) */}
+        <div className="lg:col-span-3 bg-slate-900 border border-slate-800/80 rounded-[2.5rem] p-5 text-slate-100 flex flex-col justify-between shadow-xl overflow-hidden relative" id="telehealth-vitals-column">
+          <div className="space-y-6">
+            <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
+              <div className="w-8 h-8 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex items-center justify-center text-emerald-400">
+                <Activity size={16} className="animate-pulse" />
+              </div>
+              <div className="rtl:text-right text-left">
+                <h4 className="text-xs font-black tracking-tight text-white uppercase">
+                  {isRTL ? "المؤشرات الحيوية" : "Measured Vitals"}
+                </h4>
+                <p className="text-[8px] font-mono text-slate-500 tracking-wider">
+                  LIVE STREAMING DATA
+                </p>
+              </div>
+            </div>
+
+            {/* Simulated Live ECG Waveform */}
+            <div className="bg-slate-950 border border-slate-800/60 p-4 rounded-3xl space-y-3">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-1 font-mono text-[8px] text-slate-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                  ECG WAVEFORM
+                </div>
+                <span className="font-mono text-[9px] text-emerald-400 font-bold">{vitalsStream.heartRate} BPM</span>
+              </div>
+              <div className="h-10 flex items-center overflow-hidden">
+                <svg className="w-full h-full stroke-emerald-500 fill-none" strokeWidth="2" viewBox="0 0 200 40">
+                  <path d="M 0 20 Q 15 20 20 10 T 30 30 T 40 20 L 80 20 L 85 5 L 90 35 L 95 20 L 140 20 Q 155 20 160 10 T 170 30 T 180 20 L 200 20" className="animate-pulse" />
+                </svg>
+              </div>
+            </div>
+
+            {/* Vitals Cards Stack */}
+            <div className="space-y-3">
+              {[
+                { label: isRTL ? "معدل النبض" : "Pulse Rate", value: vitalsStream.heartRate, unit: "BPM", details: "Heart Rate" },
+                { label: isRTL ? "تشبع الأكسجين" : "Oxygen Saturation", value: vitalsStream.o2, unit: "SpO2 %", details: "SpO2 Level" },
+                { label: isRTL ? "درجة الحرارة" : "Body Temperature", value: vitalsStream.temp, unit: "°C", details: "Core Temp" },
+                { label: isRTL ? "ضغط الدم" : "Blood Pressure", value: vitalsStream.bloodPress, unit: "mmHg", details: "BP Level" },
+              ].map((v, i) => (
+                <div key={i} className="bg-slate-950/60 border border-slate-800/40 p-3 rounded-2xl flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-1.5 rounded-lg bg-slate-900 text-slate-300">
+                      <Activity size={12} />
+                    </div>
+                    <div className="rtl:text-right text-left">
+                      <span className="block text-[8px] font-bold text-slate-400 uppercase tracking-wider">{v.label}</span>
+                      <span className="block text-[8px] font-mono text-slate-500 mt-0.5">{v.details}</span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-mono text-xs font-black text-white">{v.value}</span>
+                    <span className="block text-[7px] font-mono text-slate-500 uppercase">{v.unit}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="border-t border-slate-800 pt-3 text-center">
+            <span className="text-[8px] font-mono text-slate-500 uppercase tracking-widest block">
+              {isRTL ? "نظام سلامات الطبي الموحد" : "Salamat Unified Care Platform"}
+            </span>
+          </div>
+        </div>
       </div>
     );
   };
 
   const renderSettings = () => (
     <div className="space-y-6 pb-24">
-      {currentUser.role !== "Patient" && renderProfileAndBiometrics()}
+      {currentUser.role === "Patient" || currentUser.type === "patient" ? (
+        <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-gray-100 flex flex-col items-center justify-center text-center max-w-[1600px] mx-auto">
+          <div className="w-16 h-16 bg-primary-50 text-primary-500 rounded-full flex items-center justify-center mb-4">
+            <User size={32} />
+          </div>
+          <h3 className="font-black text-lg text-gray-800 mb-2">
+            {isRTL ? "إدارة الملف الشخصي" : "Manage Personal Profile"}
+          </h3>
+          <p className="text-xs text-gray-500 mb-6 max-w-sm">
+            {isRTL ? "يمكنك تحديث بياناتك الشخصية والسجل الطبي الخاص بك من هنا." : "You can update your personal information and medical records here."}
+          </p>
+          <button
+            onClick={() => openModal("patient", currentUser)}
+            className="bg-primary-600 hover:bg-primary-700 text-white font-bold px-6 py-3 rounded-xl uppercase tracking-wider text-xs transition-colors flex items-center gap-2"
+          >
+            <Settings size={16} /> {isRTL ? "تعديل الملف الشخصي" : "Edit Profile"}
+          </button>
+        </div>
+      ) : (
+        renderProfileAndBiometrics()
+      )}
       {renderAestheticsAndGeneral()}
     </div>
   );
@@ -24544,7 +24644,7 @@ function App() {
                     </span>
                   </span>
                 </div>
-                {hasPermission("add", "hospitals") && (
+                {hasPermission("add", "hospitals") && currentUser.role === "Super Admin" && (
                   <button
                     onClick={() => {
                       if (hospitalsViewTab === "pharmacies") {
@@ -24675,6 +24775,20 @@ function App() {
             >
               <Wrench size={18} className={hospitalsViewTab === "externalWorkshops" ? "text-orange-500" : "opacity-70"} />
               {isRTL ? "ورش طبية مستقلة (خاصة)" : "Independent Medical Workshops"}
+            </button>
+            <button
+              onClick={() => {
+                setHospitalsViewTab("accounts");
+                setSearchTerm("");
+              }}
+              className={`flex-1 sm:flex-none px-6 py-3 rounded-xl text-xs font-black uppercase transition-all duration-300 flex items-center justify-center gap-2.5 whitespace-nowrap ${
+                hospitalsViewTab === "accounts"
+                  ? "bg-white dark:bg-slate-900 text-indigo-600 shadow-[0_4px_12px_rgba(0,0,0,0.05)] scale-100 ring-1 ring-black/5 dark:ring-white/10"
+                  : "text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-200/50 dark:hover:bg-slate-700/50"
+              }`}
+            >
+              <Users size={18} className={hospitalsViewTab === "accounts" ? "text-indigo-500" : "opacity-70"} />
+              {isRTL ? "إدارة الحسابات والصلاحيات" : "Accounts & Permissions"}
             </button>
             <button
               onClick={() => {
@@ -24890,6 +25004,19 @@ function App() {
           />
         )}
         {hospitalsViewTab === "settings" && renderSystemSettings()}
+        {hospitalsViewTab === "accounts" && (
+          <AccountsManager
+            isRTL={isRTL}
+            currentUser={currentUser}
+            users={users}
+            patients={patients}
+            setUsers={setUsers}
+            setPatients={setPatients}
+            apiFetch={apiFetch}
+            basePermissions={basePermissions}
+            setBasePermissions={setBasePermissions}
+          />
+        )}
       </div>
     );
   };
@@ -28932,26 +29059,6 @@ function App() {
     );
   };
 
-  const handleAutoLinkTelegram = async (type: 'user' | 'patient', id?: string) => {
-    if (!id) {
-      alert(isRTL ? "يرجى حفظ السجل أولاً قبل الربط بتليغرام" : "Please save the record first before linking Telegram");
-      return;
-    }
-    try {
-      const res = await apiFetch("/api/system/telegram-bot");
-      if (res.ok) {
-        const data = await res.json();
-        if (data.username) {
-          window.open(`https://t.me/${data.username}?start=${type}_${id}`, '_blank');
-        } else {
-          alert("Bot username not configured");
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
   const renderModal = () => {
     if (!isModalOpen) return null;
 
@@ -30665,6 +30772,39 @@ function App() {
                             />
                           </div>
                           <div className="flex-1 space-y-4">
+                            <div className="flex items-center gap-2 mb-2 p-2 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
+                                <input 
+                                    type="checkbox" 
+                                    id="isChild" 
+                                    checked={modalIsChild} 
+                                    onChange={(e) => setModalIsChild(e.target.checked)}
+                                    className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500"
+                                />
+                                <label htmlFor="isChild" className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-tight">
+                                    {isRTL ? "هذا المريض طفل (تحت الوصاية)" : "Child Patient (Under Guardianship)"}
+                                </label>
+                            </div>
+
+                            {modalIsChild && (
+                                <div className="animate-in fade-in slide-in-from-top-1 duration-200">
+                                    <label className="block text-[10px] font-black uppercase tracking-widest text-primary-500 mb-1">
+                                        {isRTL ? "اختر ولي الأمر / الوصي" : "Select Parent / Guardian"}
+                                    </label>
+                                    <select
+                                        name="guardian_id"
+                                        value={modalGuardianId}
+                                        onChange={(e) => setModalGuardianId(e.target.value)}
+                                        required={modalIsChild}
+                                        className="w-full p-2.5 bg-white dark:bg-slate-900 border border-primary-100 dark:border-primary-900/40 rounded-xl outline-none text-xs font-bold ring-1 ring-primary-50"
+                                    >
+                                        <option value="">{isRTL ? "اختر من قائمة المرضى..." : "Select from patient registry..."}</option>
+                                        {patients.filter(p => !p.guardian_id).map(p => (
+                                            <option key={p.id} value={p.id}>{p.name} ({p.nationalId})</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+
                             <div>
                               <label className="block text-sm font-medium text-gray-700 mb-1">
                                 {isRTL ? "الرقم الوطني" : "National ID"}
@@ -30703,12 +30843,13 @@ function App() {
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
-                              {t.email}
+                              {t.email} {modalIsChild && <span className="text-[10px] text-primary-500">({isRTL ? "اختياري للطفل" : "Optional for child"})</span>}
                             </label>
                             <input
                               type="email"
                               name="email"
                               defaultValue={editingItem?.email}
+                              required={!modalIsChild}
                               className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 outline-none"
                               placeholder="patient@example.com"
                             />
@@ -30728,22 +30869,6 @@ function App() {
                                     : "Leave empty to keep old"
                                   : "..."
                               }
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1 flex justify-between items-center">
-                              <span>{isRTL ? "معرف تليغرام" : "Telegram Chat ID"}</span>
-                              {editingItem && (
-                                <button type="button" onClick={() => handleAutoLinkTelegram('user', editingItem.id)} className="text-primary-600 hover:text-primary-800 text-[10px] uppercase font-bold tracking-wider flex items-center gap-1 bg-primary-50 px-2 py-0.5 rounded-md">
-                                  <Send size={10} /> {isRTL ? "جلب تلقائي" : "Auto-Link"}
-                                </button>
-                              )}
-                            </label>
-                            <input
-                              name="telegram_chat_id"
-                              defaultValue={editingItem?.telegram_chat_id}
-                              className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 outline-none"
-                              placeholder={isRTL ? "أدخل المعرف أو انقر جلب تلقائي" : "Enter ID or click Auto-Link"}
                             />
                           </div>
                         </div>
@@ -30824,12 +30949,12 @@ function App() {
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
-                              {t.contactNumber}
+                              {t.contactNumber} {modalIsChild && <span className="text-[10px] text-primary-500">({isRTL ? "اختياري للطفل" : "Optional for child"})</span>}
                             </label>
                             <input
                               name="contactNumber"
                               defaultValue={editingItem?.contactNumber}
-                              required
+                              required={!modalIsChild}
                               className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 outline-none"
                             />
                           </div>
@@ -33162,22 +33287,6 @@ function App() {
                                       <option key={p.id} value={p.id}>{p.name}</option>
                                     ))}
                                   </select>
-                                </div>
-                                <div className="space-y-1.5">
-                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex justify-between items-center">
-                                    <span>{isRTL ? "معرف تليغرام" : "Telegram Chat ID"}</span>
-                                    {editingItem && (
-                                      <button type="button" onClick={() => handleAutoLinkTelegram('patient', editingItem.id)} className="text-primary-600 hover:text-primary-800 text-[9px] uppercase font-bold tracking-widest flex items-center gap-1 bg-primary-50 px-2 py-0.5 rounded-md">
-                                        <Send size={10} /> {isRTL ? "جلب تلقائي" : "Auto-Link"}
-                                      </button>
-                                    )}
-                                  </label>
-                                  <input
-                                    name="telegram_chat_id"
-                                    defaultValue={editingItem?.telegram_chat_id}
-                                    className="w-full p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl focus:ring-2 focus:ring-primary-500 outline-none text-sm font-bold"
-                                    placeholder={isRTL ? "أدخل المعرف أو انقر جلب تلقائي" : "Enter ID or click Auto-Link"}
-                                  />
                                 </div>
                               </div>
                             </div>
@@ -36107,6 +36216,31 @@ function App() {
       return ["dashboard", "telehealth", "feedback", "settings", "about"].includes(item.id);
     }
 
+    // Support Custom JSON Permission Overrides for Sidebar Tabs
+    let customPerms: any = null;
+    if (currentUser?.permissions) {
+      if (typeof currentUser.permissions === "object") {
+        customPerms = currentUser.permissions;
+      } else {
+        try {
+          customPerms = JSON.parse(currentUser.permissions);
+          if (typeof customPerms === "string") customPerms = JSON.parse(customPerms);
+        } catch (e) {}
+      }
+    }
+
+    if (customPerms) {
+      if (typeof customPerms[item.id] === "boolean") {
+        return customPerms[item.id];
+      }
+      if (customPerms[item.id] && typeof customPerms[item.id] === "object") {
+        const secPerms = customPerms[item.id];
+        if (typeof secPerms["view"] === "boolean") {
+          return secPerms["view"];
+        }
+      }
+    }
+
     // 2. Jakel Company Exclusive Interface (Super Admin)
     if (role === "Super Admin") {
       return true;
@@ -36114,12 +36248,12 @@ function App() {
 
     // 3. Independent Pharmacy Interface (Pharmacy Admin / Pharmacist)
     if (role === "Pharmacy Admin" || role === "Pharmacist") {
-      return ["dashboard", "inventory", "finance", "hr", "users", "analytics", "reports", "feedback", "settings", "about"].includes(item.id);
+      return ["dashboard", "departments", "inventory", "finance", "hr", "users", "analytics", "reports", "feedback", "settings", "about"].includes(item.id);
     }
 
     // 4. Independent Lab Interface (Laboratory Admin / Lab Technician)
     if (role === "Laboratory Admin" || role === "Lab Technician") {
-      return ["dashboard", "emr", "laboratory", "imaging", "inventory", "finance", "hr", "users", "analytics", "reports", "feedback", "settings", "about"].includes(item.id);
+      return ["dashboard", "departments", "emr", "laboratory", "imaging", "inventory", "finance", "hr", "users", "analytics", "reports", "feedback", "settings", "about"].includes(item.id);
     }
 
     // 5. Hospital Roles
@@ -36135,13 +36269,13 @@ function App() {
     }
 
     if (role === "Nurse") {
-      // Nurses see dashboard, nurses station, EMR (view patient info), shifts, feedback, settings, about
-      return ["dashboard", "nursesStation", "emr", "hr", "feedback", "settings", "about"].includes(item.id);
+      // Nurses see dashboard, departments, nurses station, EMR (view patient info), shifts, feedback, settings, about
+      return ["dashboard", "departments", "nursesStation", "emr", "hr", "feedback", "settings", "about"].includes(item.id);
     }
 
     if (role === "Technician") {
       // Workshop technician / maintenance
-      return ["dashboard", "workshop", "hr", "feedback", "settings", "about"].includes(item.id);
+      return ["dashboard", "departments", "workshop", "hr", "feedback", "settings", "about"].includes(item.id);
     }
 
     // Standard baseline for other roles (e.g. receptionist, auditor)
@@ -37702,36 +37836,40 @@ function App() {
                   {systemName}
                 </span>
                 <div className="flex items-center gap-1.5 mt-1">
-                  {(currentUser.role === "Super Admin" ||
-                    currentUser.assigned_hospitals) && (
-                    <select
-                      value={activeHospitalId}
-                      onChange={(e) => setActiveHospitalId(e.target.value)}
-                      className="text-[9px] bg-slate-100/80 dark:bg-slate-800 border-none rounded-lg px-2 py-0.5 font-black outline-none cursor-pointer text-primary-600 dark:text-primary-400 uppercase tracking-widest hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors truncate max-w-[120px]"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {hospitals
-                        .filter((h) => {
-                          if (currentUser.role === "Super Admin") return true;
-                          const assigned =
-                            currentUser.assigned_hospitals?.split(",") || [];
-                          return (
-                            assigned.includes(h.id) ||
-                            h.id === currentUser.hospital_id ||
-                            h.id === currentUser.hospitalId
-                          );
-                        })
-                        .map((h) => (
-                          <option key={h.id} value={h.id}>
-                            {h.name}
-                          </option>
-                        ))}
-                    </select>
-                  )}
                   <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
                   <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
                     {isRTL ? "نشط" : "Node Active"}
                   </span>
+                  
+                  {(currentUser.role === "Super Admin" ||
+                    currentUser.assigned_hospitals) && (
+                    <div className="relative ml-2 flex items-center justify-center p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded cursor-pointer transition-colors" title={isRTL ? "اختيار المؤسسة" : "Select Institution"}>
+                      <Building2 size={12} className="text-slate-500 hover:text-primary-600" />
+                      <select
+                        value={activeHospitalId}
+                        onChange={(e) => setActiveHospitalId(e.target.value)}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {hospitals
+                          .filter((h) => {
+                            if (currentUser.role === "Super Admin") return true;
+                            const assigned =
+                              currentUser.assigned_hospitals?.split(",") || [];
+                            return (
+                              assigned.includes(h.id) ||
+                              h.id === currentUser.hospital_id ||
+                              h.id === currentUser.hospitalId
+                            );
+                          })
+                          .map((h) => (
+                            <option key={h.id} value={h.id}>
+                              {h.name}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -37756,29 +37894,14 @@ function App() {
             </div>
           </div>
 
-          {/* Center: Interactive Global Search (Toolbar Style) */}
-          <div className="flex flex-1 max-w-[150px] sm:max-w-[180px] mx-2">
+          {/* Center: Interactive Global Search (Icon Style) */}
+          <div className="flex flex-1 justify-center items-center mx-2">
             <button
               onClick={() => setIsGlobalSearchOpen(true)}
-              className={`w-full flex items-center justify-between bg-white/70 dark:bg-slate-800/70 hover:bg-white dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 px-1.5 py-0.5 sm:py-1 rounded shadow-inner transition-all group shrink-0 ${isRTL ? "flex-row-reverse" : ""}`}
+              className="p-1.5 hover:bg-slate-200/80 dark:hover:bg-slate-800 rounded-md text-slate-500 hover:text-primary-600 focus:outline-none focus:ring-1 focus:ring-primary-500/50 active:scale-95 transition-all outline-none"
+              title={isRTL ? "بحث شامل (⌘K)" : "Global Search (⌘K)"}
             >
-              <div
-                className={`flex items-center gap-1.5 ${isRTL ? "flex-row-reverse" : ""}`}
-              >
-                <div className="text-slate-500 group-hover:text-primary-600 shrink-0">
-                  <Search size={12} />
-                </div>
-                <span className="text-[9px] sm:text-[10px] font-medium text-slate-400 dark:text-slate-500 truncate">
-                  {isRTL ? "ابحث..." : "Search..."}
-                </span>
-              </div>
-              <div
-                className={`hidden sm:flex items-center gap-1 ${isRTL ? "flex-row-reverse" : ""}`}
-              >
-                <kbd className="px-1 py-px bg-white dark:bg-slate-900 rounded text-[8px] font-mono font-bold text-slate-400 shadow-sm border border-slate-200/50">
-                  ⌘K
-                </kbd>
-              </div>
+              <Search size={18} />
             </button>
           </div>
 
@@ -38016,116 +38139,65 @@ function App() {
                 </div>
               </button>
 
-              <AnimatePresence>
-                {showHeaderUserDropdown && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 15, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 15, scale: 0.95 }}
-                    className={`absolute right-0 top-10 w-60 bg-white rounded-[2rem] shadow-2xl border border-gray-100/50 p-4 z-50 flex flex-col ${isRTL ? "text-right" : "text-left"}`}
-                  >
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="w-8 h-8 rounded-full bg-primary-100 text-primary-600 flex items-center justify-center font-black text-[10px] overflow-hidden select-none shrink-0">
-                        {getUserAvatarUrl(currentUser) ? (
-                          <img
-                            src={getUserAvatarUrl(currentUser)!}
-                            className="w-full h-full object-cover"
-                            referrerPolicy="no-referrer"
-                            alt="U"
-                          />
-                        ) : (
-                          currentUser?.name?.charAt(0) || "U"
-                        )}
-                      </div>
-                      <div className="truncate min-w-0">
-                        <h4 className="font-black text-[11px] text-gray-850 leading-none mb-1 truncate">
-                          {currentUser.name}
-                        </h4>
-                        <p className="text-[8px] text-primary-600 font-bold uppercase tracking-widest leading-none mt-0.5 truncate">
-                          {currentUser.role}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="h-px bg-gray-50 mb-3" />
-
-                    <div className="space-y-1">
-                      <button
-                        onClick={() => {
-                          setActiveTab("settings");
-                          setShowHeaderUserDropdown(false);
-                        }}
-                        className="w-full px-3 py-1.5 hover:bg-primary-50 rounded-lg text-[9px] text-gray-750 font-bold transition-all uppercase tracking-wider flex items-center gap-2 text-left rtl:text-right"
-                      >
-                        <Settings size={12} className="text-gray-400" />
-                        <span>{t.manageAccount}</span>
-                      </button>
-                      {currentUser.role === "Super Admin" && (
-                        <button
-                          onClick={() => {
-                            connectSystemGmail();
-                            setShowHeaderUserDropdown(false);
-                          }}
-                          className="w-full px-3 py-1.5 hover:bg-amber-50 rounded-lg text-[9px] text-amber-700 font-bold transition-all uppercase tracking-wider flex items-center gap-2 text-left rtl:text-right"
-                          title={
-                            isRTL
-                              ? "ربط نظام البريد الإلكتروني (Gmail)"
-                              : "Link System Gmail Account"
-                          }
-                        >
-                          <Mail size={12} className="text-amber-500" />
-                          <span>
-                            {isRTL ? "إعدادات Gmail" : "Gmail Settings"}
-                          </span>
-                        </button>
-                      )}
-                      <button
-                        onClick={() => {
-                          openModal("changePassword", currentUser);
-                          setShowHeaderUserDropdown(false);
-                        }}
-                        className="w-full px-3 py-1.5 hover:bg-primary-50 rounded-lg text-[9px] text-gray-750 font-bold transition-all uppercase tracking-wider flex items-center gap-2 text-left rtl:text-right"
-                      >
-                        <RefreshCw size={12} className="text-gray-400" />
-                        <span>
-                          {isRTL ? "تغيير كلمة المرور" : "Change Password"}
-                        </span>
-                      </button>
-                      <button
-                        onClick={() => {
-                          handleLogout();
-                          setShowHeaderUserDropdown(false);
-                        }}
-                        className="w-full px-3 py-1.5 hover:bg-rose-50 text-rose-600 rounded-lg text-[9px] font-black transition-all uppercase tracking-wider flex items-center gap-2 text-left rtl:text-right"
-                      >
-                        <RefreshCw
-                          size={12}
-                          className="rotate-180 text-rose-400"
-                        />
-                        <span>{isRTL ? "تسجيل الخروج" : "Log Out"}</span>
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              {/* Header User Dropdown Menu */}
+              {showHeaderUserDropdown && (
+                <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl border border-slate-100 dark:border-slate-800 p-2 z-50 animate-fade-in">
+                  <div className="p-4 border-b border-slate-100 dark:border-slate-800">
+                    <p className="text-xs font-black text-slate-800 dark:text-slate-100 uppercase tracking-tight">
+                      {currentUser.name}
+                    </p>
+                    <p className="text-[9px] font-mono text-slate-400 mt-0.5 uppercase tracking-wider">
+                      {currentUser.role}
+                    </p>
+                  </div>
+                  <div className="p-1">
+                    <button
+                      onClick={() => {
+                        setActiveTab("settings");
+                        setShowHeaderUserDropdown(false);
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 rounded-2xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                    >
+                      <Settings size={14} />
+                      {isRTL ? "إعدادات الحساب" : "My Account"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setActiveTab("about");
+                        setShowHeaderUserDropdown(false);
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 rounded-2xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                    >
+                      <Info size={14} />
+                      {isRTL ? "حول النظام" : "About System"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleLogout();
+                        setShowHeaderUserDropdown(false);
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 rounded-2xl text-xs font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-colors mt-1"
+                    >
+                      <LogOut size={14} />
+                      {isRTL ? "تسجيل الخروج" : "Logout"}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </header>
 
-        {/* Main Scrolling Viewport */}
-        <main className="flex-1 overflow-y-auto bg-slate-50/20 custom-scrollbar scroll-smooth relative">
-          {/* Intelligent Background Accents */}
-          <div className="fixed top-0 right-0 w-1/2 h-1/2 bg-primary-100/10 blur-[160px] rounded-full opacity-50 pointer-events-none" />
-          <div className="fixed bottom-0 left-0 w-1/2 h-1/2 bg-indigo-100/10 blur-[160px] rounded-full opacity-50 pointer-events-none" />
-
-          <div className="relative z-10 w-full min-h-full flex flex-col">
+        {/* Main Content Area */}
+        <main className="flex-1 overflow-y-auto" id="main-content-viewport">
+          <div className="w-full min-h-full flex flex-col relative">
             <AnimatePresence mode="wait">
               <motion.div
                 key={activeTab}
-                initial={{ opacity: 0, y: 30, filter: "blur(10px)" }}
-                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                exit={{ opacity: 0, y: -30, filter: "blur(10px)" }}
-                transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.25 }}
                 className="w-full flex-1 flex flex-col"
               >
                 {/* Dynamic View Header */}
@@ -38133,129 +38205,45 @@ function App() {
                   title={
                     navItems.find((n) => n.id === activeTab)?.label || activeTab
                   }
-                  subtitle={
-                    activeTab === "dashboard"
-                      ? isRTL
-                        ? "نظرة عامة على أداء النظام"
-                        : "HyperOS System Intelligence Overview"
-                      : activeTab === "users"
-                        ? isRTL
-                          ? "إدارة الكوادر البشرية والصلاحيات"
-                          : "Human Resources & Access Control"
-                        : activeTab === "emr"
-                          ? isRTL
-                            ? "السجلات الطبية وتاريخ المرضى"
-                            : "Clinical Data & Patient Histories"
-                          : isRTL
-                            ? "بيئة عمل سلامات المتكاملة"
-                            : "Managed Clinical Operations Workspace"
-                  }
-                  icon={
-                    navItems.find((n) => n.id === activeTab)?.icon || Activity
-                  }
-                  stats={
-                    activeTab === "users"
-                      ? [
-                          { label: "Active Staff", value: users.length },
-                          {
-                            label: "Verified",
-                            value: users.filter((u) => u.is_verified).length,
-                          },
-                        ]
-                      : activeTab === "hospitals"
-                        ? [
-                            { label: "Total Nodes", value: hospitals.length },
-                            {
-                              label: "Active",
-                              value: hospitals.filter(
-                                (h) => h.subscription_status === "active",
-                              ).length,
-                            },
-                          ]
-                        : activeTab === "emr"
-                          ? [
-                              {
-                                label: "Total Records",
-                                value: medicalRecords.length,
-                              },
-                              { label: "Patients", value: patients.length },
-                            ]
-                          : undefined
-                  }
+                  icon={navItems.find((n) => n.id === activeTab)?.icon || Activity}
+                  subtitle={isRTL ? "مساحة العمل" : "Workspace"}
                 />
-
-                <div className="pb-24">
+                <div className="flex-1 w-full h-full relative">
                   {navItems.some((n) => n.id === activeTab) ||
-                  ["maintenance", "departments"].includes(activeTab) ? (
+                  ["maintenance", "departments", "about"].includes(activeTab) ? (
                     <>
                       {activeTab === "dashboard" && renderDashboard()}
-                      {activeTab === "governance" &&
-                        renderGovernanceWorkspace()}
-                      {activeTab === "analytics" && renderAnalytics()}
-                      {activeTab === "workshop" && renderWorkshop()}
+                      {activeTab === "governance" && renderGovernanceWorkspace()}
                       {activeTab === "nursesStation" && (
                         <NursesStationView
-                          isRTL={isRTL}
-                          currentUser={currentUser}
                           nursesStations={nursesStations}
                           stationDevices={stationDevices}
                           selectedStationId={selectedStationId}
                           setSelectedStationId={setSelectedStationId}
-                          setIsVisitModalOpen={setIsVisitModalOpen}
-                          assets={assets}
+                          nursesTasks={nursesTasks}
+                          setNursesTasks={setNursesTasks}
                           patients={patients}
+                          users={users}
+                          departments={departments}
                           apiFetch={apiFetch}
-                          fetchNursesStationsAndDevices={fetchNursesStationsAndDevices}
-                          fetchData={fetchData}
                         />
                       )}
-                      {activeTab === "organizations" && renderHospitals()}
                       {activeTab === "telehealth" && renderTelehealthChat()}
-                      {activeTab === "appointments" && renderAppointments()}
-                      {activeTab === "finance" && renderFinanceWithBilling()}
-                      {activeTab === "hr" && renderHrWithShifts()}
-                      {activeTab === "maintenance" && renderMaintenance()}
+                      {activeTab === "organizations" && renderHospitals()}
                       {activeTab === "departments" && renderDepartments()}
-                      {activeTab === 'inventory' && (
-                        currentUser?.role?.includes("Pharmacy") || currentUser?.role === "Super Admin" || currentUser?.role === "Hospital Admin" ? (
-                          <PharmacyWorkspace
-                            isRTL={isRTL}
-                            currentUser={currentUser}
-                            apiFetch={apiFetch}
-                            medications={medications}
-                            setMedications={setMedications}
-                            suppliers={suppliers}
-                            setSuppliers={setSuppliers}
-                            pharmacyOrders={pharmacyOrders}
-                            setPharmacyOrders={setPharmacyOrders}
-                            pharmacySales={pharmacySales}
-                            setPharmacySales={setPharmacySales}
-                            externalPharmacies={externalPharmacies}
-                            setExternalPharmacies={setExternalPharmacies}
-                            inventory={inventory}
-                            setInventory={setInventory}
-                            patients={patients}
-                            medicalRecords={medicalRecords}
-                            fetchData={fetchData}
-                            currencySymbol={currencySymbol}
-                            hospitals={hospitals}
-                            users={users}
-                            openModal={openModal}
-                            handleDelete={handleDelete}
-                            hasPermission={hasPermission}
-                            t={t}
-                            renderStaffPermissionsManager={renderStaffPermissionsManager}
-                          />
-                        ) : (
-                          renderInventory()
-                        )
-                      )}
                       {activeTab === "emr" && renderEMR()}
                       {activeTab === "laboratory" && renderLaboratoryWorkspace()}
                       {activeTab === "imaging" && renderImagingSection()}
+                      {activeTab === "appointments" && renderAppointments()}
                       {activeTab === "users" && renderUsers()}
-                      {activeTab === "settings" && renderSettings()}
+                      {activeTab === "hr" && renderHr()}
+                      {activeTab === "finance" && renderFinance()}
+                      {activeTab === "analytics" && renderAnalytics()}
                       {activeTab === "reports" && renderReports()}
+                      {activeTab === "workshop" && renderWorkshop()}
+                      {activeTab === "inventory" && renderInventory()}
+                      {activeTab === "feedback" && renderFeedback()}
+                      {activeTab === "settings" && renderSettings()}
                       {activeTab === "about" && renderAbout()}
                     </>
                   ) : null}
@@ -38265,6 +38253,22 @@ function App() {
           </div>
         </main>
       </div>
+
+      {renderGlobalSearchModal()}
+
+      {/* Overlays and Modals */}
+      {renderModal()}
+      {renderDeleteConfirmModal()}
+      {renderEMRInspectorModal()}
+      {renderUserGuideModal()}
+      {renderPwaInstallGuideModal()}
+      {renderFirebaseSyncDashboard()}
+      {renderUpdateModal()}
+      {renderOtaUpdateModal()}
+      {renderHospitalVisitModal()}
+      {renderQrScannerModal()}
+      {renderQrPrintModal()}
+      {renderBiometricOverlay()}
     </div>
   );
 }
